@@ -82,6 +82,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPScreenShot
         COMBINE_HIDPI_IMAGES: YES
+        # アプリアイコン。Sources/Assets.xcassets/AppIcon.appiconset に
+        # 16〜512pt（@1x/@2x）の全 10 サイズを置く。macOS の appiconset は
+        # 1024x1024 を 1 枚だけ置く方式を actool が受け付けず
+        # 「has an unassigned child」警告になり .icns が生成されないため。
+        # 素材の元データ（.ai / 1024px PNG）は Icon/ にあり、差し替え時は
+        # Icon/JPScreenShot.png から sips で 10 サイズを再生成する。
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # App Sandbox は無効。デスクトップ保存（SAV-01）を追加の許可なしに
         # 動かすため。詳細は Docs/実装計画.md 8.1 を参照
         ENABLE_APP_SANDBOX: NO
