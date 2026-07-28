@@ -6,18 +6,27 @@ struct ResultView: View {
     @Bindable var model: ResultViewModel
 
     var body: some View {
-        VSplitView {
-            imagePane
-            textPane
+        // ボタンバーは safeAreaInset ではなく VStack の兄弟として置く。
+        //
+        // safeAreaInset は VSplitView 全体に対して余白を確保するが、
+        // 分割ペイン内の TextEditor にはその inset が伝わらないため、
+        // テキストの末尾がボタンバーの下に隠れて最後までスクロール
+        // できなくなっていた。実体のある領域として積む方が確実。
+        VStack(spacing: 0) {
+            VSplitView {
+                imagePane
+                textPane
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+            buttonBar
         }
         .frame(minWidth: 480, minHeight: 360)
         .overlay(alignment: .top) {
             if let feedback = model.feedback {
                 feedbackBanner(feedback)
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            buttonBar
         }
     }
 

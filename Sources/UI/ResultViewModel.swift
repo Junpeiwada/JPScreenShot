@@ -72,13 +72,21 @@ final class ResultViewModel {
             do {
                 // await によりメインスレッドを離れて実行される。
                 let result = try await TextRecognizer.recognize(image: image, mode: mode)
-                // 途中でモードが変わっていたら結果を破棄する。
+                // キャンセル済み、または途中でモードが変わっていたら破棄する。
+                // 後続の認識が走っているので isRecognizing はそちらに任せる。
                 guard !Task.isCancelled, self.mode == mode else { return }
                 self.text = result.text
                 self.lineCount = result.lineCount
                 self.hasNoText = result.lineCount == 0
                 self.isRecognizing = false
             } catch {
+                // モード切替や終了による中断は異常ではないので何も表示しない。
+                //
+                // Vision は CancellationError ではなく
+                // VisionError.requestCancelled を投げる（実測で確認）ため、
+                // 型で分岐せず Task.isCancelled で判定する。
+                // コンソールに出る "RecognizeTextRequest was cancelled." は
+                // Vision 自身のログで、異常を意味しない。
                 guard !Task.isCancelled else { return }
                 self.text = ""
                 self.lineCount = 0
