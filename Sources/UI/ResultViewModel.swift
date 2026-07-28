@@ -26,6 +26,13 @@ final class ResultViewModel {
     /// コピー・保存の完了フィードバック（CPY-03）。
     var feedback: String?
 
+    /// 画像を等倍（1:1）で表示するか。
+    ///
+    /// 既定は true。1x ディスプレイでは縮小すると必ずリサンプリングで
+    /// ぼやけるため、既定では等倍のまま出してスクロールで見せる。
+    /// false にするとウィンドウに合わせて縮小表示する。
+    var actualSize: Bool = true
+
     /// ウィンドウを閉じる要求。
     var requestClose: (() -> Void)?
 

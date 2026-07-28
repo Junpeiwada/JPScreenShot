@@ -35,10 +35,13 @@ final class OverlayView: NSView {
     // MARK: - マウスイベント
 
     override func mouseDown(with event: NSEvent) {
+        NSCursor.crosshair.set()
         onMouseDown?(NSEvent.mouseLocation)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        // ドラッグ中も十字を維持する（他のカーソルに戻されることがある）。
+        NSCursor.crosshair.set()
         onMouseDragged?(NSEvent.mouseLocation)
     }
 
@@ -48,9 +51,42 @@ final class OverlayView: NSView {
 
     // MARK: - カーソル
 
+    // レティクル（十字）カーソル。要求 4.2。
+    //
+    // borderless で level が高いオーバーレイウィンドウでは
+    // addCursorRect / cursorUpdate だけでは反映が不安定で、
+    // 「なったりならなかったり」する。そのため
+    // NSCursor.set() を明示的に呼ぶ経路を複数用意して確実にする。
+
     override func resetCursorRects() {
-        // レティクル（十字）カーソル。要求 4.2。
         addCursorRect(bounds, cursor: .crosshair)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.crosshair.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.crosshair.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.crosshair.set()
+    }
+
+    /// マウス追跡領域を張り直す。ウィンドウのリサイズや表示直後に呼ばれる。
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
     }
 
     // MARK: - 描画

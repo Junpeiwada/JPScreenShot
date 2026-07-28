@@ -67,11 +67,15 @@ final class AppCoordinator {
             self.preloadedContent = try? await ScreenCaptureService.fetchShareableContent()
         }
 
+        // 範囲選択中はアイコンを変えて状態を示す。
+        menuBar.setIconState(.capturing)
+
         let coordinator = SelectionCoordinator()
         selection = coordinator
         coordinator.begin { [weak self] rect in
             guard let self else { return }
             self.selection = nil
+            self.menuBar.setIconState(.idle)
             guard let rect else {
                 // キャンセル（CAP-05）。先読みも破棄する。
                 self.discardPreload()

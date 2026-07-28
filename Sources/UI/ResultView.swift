@@ -25,27 +25,13 @@ struct ResultView: View {
 
     private var imagePane: some View {
         GeometryReader { geometry in
-            let size = fittedSize(in: geometry.size)
-            // 等倍で収まるかどうか。等倍なら .resizable() を通さず
-            // そのまま描く（同じ寸法でもリサンプリング経路に入ると
-            // わずかに甘くなることがあるため）。
-            let isExact = size.width >= CGFloat(model.image.width) - 0.5
             ScrollView([.horizontal, .vertical]) {
-                Group {
-                    if isExact {
-                        Image(decorative: model.image, scale: 1.0)
-                    } else {
-                        Image(decorative: model.image, scale: 1.0)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: size.width, height: size.height)
-                    }
-                }
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .center
-                )
+                imageContent(in: geometry.size)
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .center
+                    )
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -53,10 +39,25 @@ struct ResultView: View {
         .frame(minHeight: 120, idealHeight: 320)
     }
 
+    @ViewBuilder
+    private func imageContent(in available: CGSize) -> some View {
+        let image = Image(decorative: model.image, scale: 1.0)
+
+        if model.actualSize {
+            // 等倍（1:1）。リサンプリングを一切通さないので、画面から
+            // 取得したピクセルがそのまま表示される。
+            // 収まらない場合はスクロールで見る。
+            image
+        } else {
+            let size = fittedSize(in: available)
+            image
+                .resizable()
+                .interpolation(.high)
+                .frame(width: size.width, height: size.height)
+        }
+    }
+
     /// アスペクト比を保って収める。等倍より大きく拡大はしない（4.3）。
-    ///
-    /// Preview.app はウィンドウに合わせて拡大するため、1x のスクリーン
-    /// ショットがぼやけて見える。ここでは等倍を上限にして常に鮮明に出す。
     private func fittedSize(in available: CGSize) -> CGSize {
         let native = model.pixelSize
         guard native.width > 0, native.height > 0 else { return .zero }
@@ -150,6 +151,13 @@ struct ResultView: View {
                 .keyboardShortcut("s", modifiers: .command)
 
             Spacer()
+
+            // 等倍（1:1）とウィンドウに合わせる表示の切り替え。
+            // 1x ディスプレイでは縮小するとリサンプリングでぼやけるため
+            // 既定は等倍。
+            Toggle("等倍", isOn: $model.actualSize)
+                .toggleStyle(.checkbox)
+                .help("画面のピクセルをそのまま表示します。オフにするとウィンドウに合わせて縮小します。")
 
             Text("\(Int(model.pixelSize.width)) × \(Int(model.pixelSize.height))")
                 .font(.caption.monospacedDigit())

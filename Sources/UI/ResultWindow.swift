@@ -44,7 +44,11 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         model.recognize()
     }
 
-    /// 画像の大きさに合わせた初期サイズ。画面に収まる範囲に制限する。
+    /// 画像の大きさに合わせた初期サイズ。
+    ///
+    /// 画像が等倍で収まるようにウィンドウを開く。画面より大きい場合は
+    /// 画面いっぱいまで広げる（画像自体は等倍のままスクロールで見せる。
+    /// 縮小するとリサンプリングでぼやけるため）。
     private static func initialContentSize(for image: CGImage) -> NSSize {
         let imageWidth = CGFloat(image.width)
         let imageHeight = CGFloat(image.height)
@@ -54,8 +58,11 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         let visible = NSScreen.main?.visibleFrame.size
             ?? NSSize(width: 1280, height: 800)
 
-        let width = min(max(imageWidth, 480), visible.width * 0.8)
-        let height = min(imageHeight + chromeHeight, visible.height * 0.85)
+        // 以前は visible.width * 0.8 で上限を掛けていたため、幅 2048px を
+        // 超えるキャプチャが強制的に縮小されてぼやけていた。
+        // 画面に収まる限りは等倍で見えるようにする。
+        let width = min(max(imageWidth, 480), visible.width)
+        let height = min(imageHeight + chromeHeight, visible.height)
         return NSSize(width: width, height: height)
     }
 
