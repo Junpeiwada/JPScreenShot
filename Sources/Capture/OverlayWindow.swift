@@ -10,18 +10,47 @@ final class OverlayWindow: NSWindow {
 
     let overlayView: OverlayView
 
-    init(screen: NSScreen) {
-        overlayView = OverlayView()
-        overlayView.backingScale = screen.backingScaleFactor
-
-        super.init(
+    convenience init(screen: NSScreen) {
+        // contentRect は screen.frame（グローバル座標）をそのまま渡す。
+        // ウィンドウが画面全体と一致するので、ビューのローカル座標は
+        // 左下 (0,0) 始まりになる。
+        self.init(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
-            defer: false,
-            screen: screen
+            defer: false
         )
+        overlayView.backingScale = screen.backingScaleFactor
+        // 対象スクリーンに確実に配置する。
+        setFrame(screen.frame, display: false)
+    }
 
+    // NSWindow の指定イニシャライザは
+    // init(contentRect:styleMask:backing:defer:) の 1 つだけ
+    // （screen: 付きは convenience。SDK の NSWindow.h で確認済み）。
+    //
+    // これを override せずに独自の init を定義すると、継承した指定
+    // イニシャライザが「未実装」のまま残り、AppKit が内部的に呼んだ時点で
+    // クラッシュする:
+    //   Fatal error: Use of unimplemented initializer
+    //   'init(contentRect:styleMask:backing:defer:)'
+    override init(
+        contentRect: NSRect,
+        styleMask style: NSWindow.StyleMask,
+        backing backingStoreType: NSWindow.BackingStoreType,
+        defer flag: Bool
+    ) {
+        overlayView = OverlayView()
+        super.init(
+            contentRect: contentRect,
+            styleMask: style,
+            backing: backingStoreType,
+            defer: flag
+        )
+        configure()
+    }
+
+    private func configure() {
         // 最前面に出す。Dock・メニューバーより上にしないと全面を覆えない。
         level = .screenSaver
         isOpaque = false
@@ -34,9 +63,6 @@ final class OverlayWindow: NSWindow {
         isReleasedWhenClosed = false
 
         contentView = overlayView
-        // ウィンドウは screen.frame と同じ大きさなので、ローカル座標は
-        // 左下 (0,0) 始まりになる。
-        setFrame(screen.frame, display: false)
     }
 
     // borderless でもキーウィンドウになれるようにする（Esc を拾うため）。
