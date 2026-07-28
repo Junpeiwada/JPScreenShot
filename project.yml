@@ -57,3 +57,16 @@ targets:
         # App Sandbox は無効。デスクトップ保存（SAV-01）を追加の許可なしに
         # 動かすため。詳細は Docs/実装計画.md 8.1 を参照
         ENABLE_APP_SANDBOX: NO
+
+  # 純粋関数のテスト。画面もキャプチャ権限も不要な範囲だけを対象にする。
+  JPScreenShotTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: JPScreenShot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.soneru.JPScreenShotTests
+        GENERATE_INFOPLIST_FILE: YES

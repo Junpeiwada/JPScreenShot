@@ -8,27 +8,17 @@ import SwiftUI
 // - コピー後にウィンドウを閉じるか（CPY-04）
 // - 画像の保存先（SAV-04「環境設定で変更できることが望ましい」）
 struct SettingsView: View {
-    @State private var mode: RecognitionMode
-    @State private var closeAfterCopy: Bool
-    @State private var saveDirectory: URL
-
-    init() {
-        let settings = Settings.shared
-        _mode = State(initialValue: settings.recognitionMode)
-        _closeAfterCopy = State(initialValue: settings.closeAfterCopy)
-        _saveDirectory = State(initialValue: settings.saveDirectory)
-    }
+    // Settings を直接参照する。値を @State に複製すると、環境設定を
+    // 開いたままメニューバーからモードを変えたときに表示がずれる。
+    @Bindable private var settings = Settings.shared
 
     var body: some View {
         Form {
             Section("認識") {
-                Picker("認識モード", selection: $mode) {
+                Picker("認識モード", selection: $settings.recognitionMode) {
                     ForEach(RecognitionMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
-                }
-                .onChange(of: mode) { _, new in
-                    Settings.shared.recognitionMode = new
                 }
 
                 Text(modeDescription)
@@ -38,10 +28,7 @@ struct SettingsView: View {
             }
 
             Section("結果ウィンドウ") {
-                Toggle("コピーしたらウィンドウを閉じる", isOn: $closeAfterCopy)
-                    .onChange(of: closeAfterCopy) { _, new in
-                        Settings.shared.closeAfterCopy = new
-                    }
+                Toggle("コピーしたらウィンドウを閉じる", isOn: $settings.closeAfterCopy)
                 Text("オフのままなら、閉じるのは「閉じる」ボタンか Esc だけになります。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -51,16 +38,15 @@ struct SettingsView: View {
             Section("保存") {
                 HStack {
                     // 保存先はパスが長くなるので末尾を優先して見せる。
-                    Text(saveDirectory.path)
+                    Text(settings.saveDirectory.path)
                         .lineLimit(1)
                         .truncationMode(.head)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("変更…") { chooseDirectory() }
-                    if saveDirectory != Settings.desktopDirectory {
+                    if settings.saveDirectory != Settings.desktopDirectory {
                         Button("デスクトップに戻す") {
-                            saveDirectory = Settings.desktopDirectory
-                            Settings.shared.saveDirectory = saveDirectory
+                            settings.saveDirectory = Settings.desktopDirectory
                         }
                     }
                 }
@@ -72,7 +58,7 @@ struct SettingsView: View {
     }
 
     private var modeDescription: String {
-        switch mode {
+        switch settings.recognitionMode {
         case .japanese:
             "文章・UI テキスト向け。日本語と英語を認識します。"
         case .code:
@@ -85,12 +71,11 @@ struct SettingsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.directoryURL = saveDirectory
+        panel.directoryURL = settings.saveDirectory
         panel.prompt = "選択"
         panel.message = "キャプチャ画像の保存先を選んでください。"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        saveDirectory = url
-        Settings.shared.saveDirectory = url
+        settings.saveDirectory = url
     }
 }

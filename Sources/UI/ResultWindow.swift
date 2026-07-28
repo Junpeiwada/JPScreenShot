@@ -84,7 +84,9 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         model?.requestClose = nil
         model = nil
         window?.delegate = nil
-        window?.contentViewController = nil
+        // contentViewController は触らない。クローズ処理の途中でビュー階層を
+        // 差し替えると AppKit / NSHostingController の内部状態と競合する。
+        // model と window の参照を切れば CGImage は連鎖して解放される。
         window = nil
         onClose?()
     }

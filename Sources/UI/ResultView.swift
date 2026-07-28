@@ -167,8 +167,11 @@ struct ResultView: View {
             Button("画像をコピー") { model.copyImage() }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
+            // Cmd+C は割り当てない。TextEditor で一部を選択して
+            // コピーする操作を奪ってしまう（4.3 で誤認識をその場で直して
+            // 部分的にコピーする使い方を想定している）。
             Button("テキストをコピー") { model.copyText() }
-                .keyboardShortcut("c", modifiers: .command)
+                .keyboardShortcut("c", modifiers: [.command, .option])
                 .disabled(!model.canCopyText)
 
             Button("保存") { model.save() }

@@ -49,6 +49,12 @@ final class ResultViewModel {
     /// 実行中の認識タスク。モード切替時に古い結果で上書きされないよう管理する。
     private var recognitionTask: Task<Void, Never>?
 
+    /// 認識の世代番号。
+    ///
+    /// 「最後に始めた認識だけが結果を書く」ことを保証する。モードの比較で
+    /// 判定すると、同じモードで再認識した場合に古い結果を弾けない。
+    private var generation = 0
+
     init(image: CGImage) {
         self.image = image
         self.mode = Settings.shared.recognitionMode
@@ -62,6 +68,8 @@ final class ResultViewModel {
     func recognize() {
         // 前の認識が走っていれば捨てる（モードを素早く切り替えた場合）。
         recognitionTask?.cancel()
+        generation += 1
+        let myGeneration = generation
 
         isRecognizing = true
         hasNoText = false
@@ -72,9 +80,9 @@ final class ResultViewModel {
             do {
                 // await によりメインスレッドを離れて実行される。
                 let result = try await TextRecognizer.recognize(image: image, mode: mode)
-                // キャンセル済み、または途中でモードが変わっていたら破棄する。
-                // 後続の認識が走っているので isRecognizing はそちらに任せる。
-                guard !Task.isCancelled, self.mode == mode else { return }
+                // 自分が最新の認識でなければ結果を捨てる。
+                // 後続が走っているので isRecognizing はそちらに任せる。
+                guard myGeneration == self.generation else { return }
                 self.text = result.text
                 self.lineCount = result.lineCount
                 self.hasNoText = result.lineCount == 0
@@ -84,10 +92,10 @@ final class ResultViewModel {
                 //
                 // Vision は CancellationError ではなく
                 // VisionError.requestCancelled を投げる（実測で確認）ため、
-                // 型で分岐せず Task.isCancelled で判定する。
+                // 型では分岐しない。世代番号が古ければ中断されたとみなす。
                 // コンソールに出る "RecognizeTextRequest was cancelled." は
                 // Vision 自身のログで、異常を意味しない。
-                guard !Task.isCancelled else { return }
+                guard myGeneration == self.generation, !Task.isCancelled else { return }
                 self.text = ""
                 self.lineCount = 0
                 self.hasNoText = true
@@ -155,6 +163,16 @@ final class ResultViewModel {
     /// SAV-02: `JPScreenShot_YYYY-MM-DD_HHmmss.png`。既存を上書きしない。
     private func uniqueSaveURL() throws -> URL {
         let directory = Settings.shared.saveDirectory
+
+        // 保存先が消えている場合（環境設定で選んだフォルダを後から削除した、
+        // 外部ボリュームが外れた等）は、書き込み失敗より前に明確に伝える。
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            throw CocoaError.error(.fileNoSuchFile, url: directory)
+        }
+
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let stamp = formatter.string(from: Date())

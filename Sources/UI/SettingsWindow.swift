@@ -42,7 +42,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window?.delegate = nil
-        window?.contentViewController = nil
+        // contentViewController は触らない（ResultWindow と同じ理由）。
         window = nil
         onClose?()
     }

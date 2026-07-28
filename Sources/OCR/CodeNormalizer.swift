@@ -61,18 +61,17 @@ enum CodeNormalizer {
         map["｀"] = "`"
         map["～"] = "~"
 
-        // 波ダッシュ・長音: ～ ー → ~ -（コードモードのみ）
+        // 波ダッシュ・ダッシュ類 → ~ - （コードモードのみ）
         map["〜"] = "~"
-        map["ー"] = "-"
         map["－"] = "-"
         map["‐"] = "-"
         map["―"] = "-"
         map["–"] = "-"
         map["—"] = "-"
 
-        // 読点・句点はコード中では区切り記号として使われることが多い。
-        map["、"] = ","
-        map["。"] = "."
+        // 注意: 長音記号 `ー`(U+30FC) と 読点`、`・句点`。` はこの表に入れない。
+        // 無条件に変換すると日本語を壊す（`サーバーエラー` → `サ-バ-エラ-`）。
+        // 文脈を見て変換するため contextual() で個別に扱う。
 
         // 全角空白 → 半角空白
         map["\u{3000}"] = " "
@@ -97,6 +96,67 @@ enum CodeNormalizer {
     ///
     /// 字形の混同（`l`/`1`、`O`/`0` 等）は意図的に補正しない（6.3）。
     static func normalize(_ text: String) -> String {
-        String(text.map { table[$0] ?? $0 })
+        let chars = Array(text)
+        var result = String()
+        result.reserveCapacity(chars.count)
+
+        for (index, char) in chars.enumerated() {
+            if let converted = contextual(char, at: index, in: chars) {
+                result.append(converted)
+            } else {
+                result.append(table[char] ?? char)
+            }
+        }
+        return result
+    }
+
+    /// 文脈を見て変換するかどうかを決める文字。
+    ///
+    /// 長音記号 `ー` は「全角ハイフンの誤認識」であることもあるが、
+    /// カタカナ語の一部（`サーバー`）であることも多い。読点・句点も
+    /// 日本語コメントでは当然そのまま残すべきである。
+    /// 前後に日本語があればそのまま残し、無ければ記号として変換する。
+    ///
+    /// - Returns: 変換後の文字。判断対象外なら nil（通常の表引きに任せる）。
+    private static func contextual(
+        _ char: Character,
+        at index: Int,
+        in chars: [Character]
+    ) -> Character? {
+        let replacement: Character
+        switch char {
+        case "ー": replacement = "-"
+        case "、": replacement = ","
+        case "。": replacement = "."
+        default: return nil
+        }
+
+        let previous = index > 0 ? chars[index - 1] : nil
+        let next = index + 1 < chars.count ? chars[index + 1] : nil
+
+        // 前後どちらかが日本語なら日本語の文脈と見なして残す。
+        if isJapanese(previous) || isJapanese(next) {
+            return char
+        }
+        return replacement
+    }
+
+    /// ひらがな・カタカナ・漢字か。
+    private static func isJapanese(_ char: Character?) -> Bool {
+        guard let scalar = char?.unicodeScalars.first else { return false }
+        switch scalar.value {
+        case 0x3040...0x309F:   // ひらがな
+            return true
+        case 0x30A0...0x30FF:   // カタカナ（長音記号 U+30FC を含む）
+            return true
+        case 0x4E00...0x9FFF:   // CJK 統合漢字
+            return true
+        case 0x3400...0x4DBF:   // CJK 拡張 A
+            return true
+        case 0xFF66...0xFF9F:   // 半角カタカナ
+            return true
+        default:
+            return false
+        }
     }
 }

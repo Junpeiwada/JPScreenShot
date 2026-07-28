@@ -120,11 +120,23 @@ final class AppCoordinator {
     /// スクリーンショットがぼやけて見え、要求 4.3 の「等倍より大きく
     /// 拡大はしない」に反する。自前のウィンドウなら等倍で出せる。
     private func showResult(_ image: CGImage) {
+        // 前のウィンドウを必ず閉じてから開く。
+        //
+        // NSWindow.delegate は weak なので、resultWindow を上書きすると
+        // ResultWindow を強参照する者がいなくなって即座に解放される。
+        // すると windowWillClose が呼ばれず、ユーザーが 1 枚目を閉じても
+        // CGImage が解放されないままウィンドウだけ画面に残る
+        // （isReleasedWhenClosed = false のため NSWindow も残る）。
+        resultWindow?.close()
+        resultWindow = nil
+
         let window = ResultWindow()
         resultWindow = window
-        window.onClose = { [weak self] in
+        window.onClose = { [weak self, weak window] in
             // 画像を解放するため参照を切る（非機能要求・メモリ）。
-            self?.resultWindow = nil
+            // 別のウィンドウに差し替わっている場合は消さない。
+            guard let self, self.resultWindow === window else { return }
+            self.resultWindow = nil
         }
         window.show(image: image)
     }

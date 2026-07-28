@@ -9,6 +9,8 @@ import AppKit
 final class MenuBarController {
     private let statusItem: NSStatusItem
     private let menu: NSMenu
+    /// メニュー表示中か。performClick の再入を防ぐ。
+    private var isShowingMenu = false
 
     /// 左クリック時（範囲選択キャプチャの開始）
     var onCapture: (() -> Void)?
@@ -82,6 +84,13 @@ final class MenuBarController {
     }
 
     private func showMenu() {
+        // performClick はメニューが閉じるまで同期的にブロックする。
+        // その間の再クリックで再入すると、内側の menu = nil が先に走って
+        // 状態が壊れる（左クリックでメニューが開く等の散発的な不具合）。
+        guard !isShowingMenu else { return }
+        isShowingMenu = true
+        defer { isShowingMenu = false }
+
         refreshModeChecks()
         // menu を代入したままだと左クリックでも開いてしまうため、
         // 表示する瞬間だけ差し込んですぐ外す。
