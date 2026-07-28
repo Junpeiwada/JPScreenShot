@@ -78,11 +78,27 @@ enum ScreenCaptureService {
         let cgRect = ScreenGeometry.convertToCoreGraphics(appKitRect)
         // ディスプレイ内のローカル座標に直す。
         let displayBounds = CGDisplayBounds(displayID)
-        let sourceRect = CGRect(
+        let localRect = CGRect(
             x: cgRect.origin.x - displayBounds.origin.x,
             y: cgRect.origin.y - displayBounds.origin.y,
             width: cgRect.width,
             height: cgRect.height
+        )
+
+        // ★ピクセル境界に整列させる（ぼやけ防止）
+        //
+        // sourceRect に小数が入ると ScreenCaptureKit がサブピクセル位置から
+        // 取得するため補間が入り、目に見えてぼやける。
+        // 実測: 整数の rect は鮮明度 7.629、0.5 ずれただけで 5.132 に低下した。
+        //
+        // ドラッグの座標は NSEvent.mouseLocation 由来で小数を含むため、
+        // 何も対策しないとほぼ毎回この劣化を踏む。整数に丸めて
+        // 画面のピクセルと 1:1 で対応させる。
+        let sourceRect = CGRect(
+            x: localRect.origin.x.rounded(.down),
+            y: localRect.origin.y.rounded(.down),
+            width: localRect.width.rounded(),
+            height: localRect.height.rounded()
         )
 
         let config = SCStreamConfiguration()

@@ -84,6 +84,10 @@ struct ResultView: View {
     }
 
     /// 認識モードの切替（6.3）。切り替えると即座に再認識される。
+    ///
+    /// 認識中の表示で要素を出し入れすると Picker の位置や右端のラベル幅が
+    /// 動いてしまうので、行数ラベルは常設して不透明度だけを変える。
+    /// 進捗表示はテキストペイン側のオーバーレイが担う。
     private var modeBar: some View {
         HStack(spacing: 8) {
             Picker("認識モード", selection: $model.mode) {
@@ -95,43 +99,54 @@ struct ResultView: View {
             .labelsHidden()
             .fixedSize()
 
-            if model.isRecognizing {
-                ProgressView().controlSize(.small)
-            }
-
             Spacer()
 
-            if !model.isRecognizing, model.lineCount > 0 {
-                Text("\(model.lineCount) 行")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
+            Text("\(model.lineCount) 行")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .opacity(model.isRecognizing || model.lineCount == 0 ? 0 : 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
     }
 
     private var textContent: some View {
+        // TextEditor は常に置いたままにする。モード切替（6.3）で
+        // ビュー階層を差し替えるとペインの寸法・スクロール位置・カーソルが
+        // 一瞬動いてしまうため、状態はオーバーレイと不透明度だけで表す。
         ZStack(alignment: .topLeading) {
+            // 選択可能かつ編集可能（4.3）。
+            TextEditor(text: $model.text)
+                .font(.system(.body, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(4)
+                // 認識中は前の結果を薄く残す。編集は受け付けない。
+                .opacity(model.isRecognizing ? 0.35 : 1)
+                .disabled(model.isRecognizing)
+
+            // OCR が 1 文字も取れなかった場合（4.3）。
+            if model.hasNoText, !model.isRecognizing {
+                Text("テキストを認識できませんでした")
+                    .foregroundStyle(.secondary)
+                    .padding()
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .top) {
+            // OCR 処理中の表示（4.3）。重ねるだけなので下の寸法に影響しない。
             if model.isRecognizing {
-                // OCR 処理中はスピナー（4.3）。画像は待たずに先に出ている。
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("テキストを認識中…")
                         .foregroundStyle(.secondary)
                 }
-                .padding()
-            } else if model.hasNoText {
-                // OCR が 1 文字も取れなかった場合（4.3）。
-                Text("テキストを認識できませんでした")
-                    .foregroundStyle(.secondary)
-                    .padding()
-            } else {
-                // 選択可能かつ編集可能（4.3）。
-                TextEditor(text: $model.text)
-                    .font(.system(.body, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(4)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.separator))
+                .padding(.top, 8)
+                .allowsHitTesting(false)
             }
         }
     }

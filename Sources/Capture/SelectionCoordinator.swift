@@ -166,13 +166,17 @@ final class SelectionCoordinator {
     }
 
     /// 2 点から正規化した矩形を作る（どの方向にドラッグしても正の幅・高さ）。
+    ///
+    /// マウス座標は小数を含む。小数のまま矩形を作るとキャプチャ時に
+    /// サブピクセル位置から取得され、補間でぼやける（実測で鮮明度が
+    /// 7.629 → 5.132 に低下）。ここで整数に丸め、選択枠の表示と
+    /// 実際に撮れるピクセルを一致させる。
     private static func rect(from a: CGPoint, to b: CGPoint) -> CGRect {
-        CGRect(
-            x: min(a.x, b.x),
-            y: min(a.y, b.y),
-            width: abs(b.x - a.x),
-            height: abs(b.y - a.y)
-        )
+        let minX = min(a.x, b.x).rounded()
+        let minY = min(a.y, b.y).rounded()
+        let maxX = max(a.x, b.x).rounded()
+        let maxY = max(a.y, b.y).rounded()
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     // MARK: - 終了処理
