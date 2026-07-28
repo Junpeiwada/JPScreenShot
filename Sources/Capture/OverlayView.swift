@@ -58,26 +58,28 @@ final class OverlayView: NSView {
     override func draw(_ dirtyRect: CGRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
-        let dimColor = NSColor.black.withAlphaComponent(0.35)
+        // 暗転はしない（ユーザー選択）。元の画面をそのまま見せることで
+        // 「何を撮るか」を判断しやすくする。オーバーレイの存在は
+        // レティクルカーソルと選択枠で示す。
+        //
+        // ただし完全な透明だとマウスイベントが下のウィンドウへ抜けるため、
+        // ほぼ不可視のごく薄い塗りを敷いてヒットテストを成立させる。
+        context.setFillColor(NSColor.black.withAlphaComponent(0.005).cgColor)
+        context.fill(bounds)
 
         guard let selection = selectionRect, selection.width > 0, selection.height > 0 else {
-            // 未選択時は全面を暗転。
-            context.setFillColor(dimColor.cgColor)
-            context.fill(bounds)
             return
         }
 
-        // 選択範囲の外側だけを暗転させる（内側は元の画面を見せる）。
-        context.setFillColor(dimColor.cgColor)
-        context.fill(bounds)
-        context.setBlendMode(.destinationOut)
-        context.fill(selection)
-        context.setBlendMode(.normal)
-
-        // 選択範囲の枠線。
+        // 選択範囲の枠線。暗転がないぶん、明暗どちらの背景でも見えるように
+        // 白の実線と黒の細い外周を重ねてコントラストを確保する。
+        let rect = selection.insetBy(dx: 0.5, dy: 0.5)
+        context.setStrokeColor(NSColor.black.withAlphaComponent(0.6).cgColor)
+        context.setLineWidth(3.0)
+        context.stroke(rect)
         context.setStrokeColor(NSColor.white.cgColor)
         context.setLineWidth(1.0)
-        context.stroke(selection.insetBy(dx: 0.5, dy: 0.5))
+        context.stroke(rect)
 
         drawDimensionLabel(for: selection, in: context)
     }

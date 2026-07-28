@@ -19,6 +19,8 @@ final class AppCoordinator {
     // Void を返す」形にして境界を越えさせない。
     private var preloadedContent: SCShareableContent?
     private var preloadTask: Task<Void, Never>?
+    /// 結果ウィンドウ。閉じたら nil にして画像を解放する。
+    private var resultWindow: ResultWindow?
 
     init() {
         menuBar.onCapture = { [weak self] in
@@ -96,27 +98,27 @@ final class AppCoordinator {
                 )
                 // 段階 4 で結果ウィンドウに差し替える。現時点では取得できた
                 // ことを確認できるようにプレビューで開く。
-                previewForVerification(image)
+                showResult(image)
             } catch {
                 presentError(error)
             }
         }
     }
 
-    /// 段階 3 の確認用。CAP-04（オーバーレイが写り込まない）を目視するため
-    /// 一時ファイルに書き出して開く。段階 4 で結果ウィンドウに置き換える。
-    private func previewForVerification(_ image: CGImage) {
-        let rep = NSBitmapImageRep(cgImage: image)
-        guard let data = rep.representation(using: .png, properties: [:]) else { return }
-        // UUID で衝突を避ける（同一秒の連続キャプチャでも上書きしない）。
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "JPScreenShot_capture_\(UUID().uuidString).png")
-        do {
-            try data.write(to: url)
-            NSWorkspace.shared.open(url)
-        } catch {
-            presentError(error)
+    /// 結果ウィンドウを表示する（要求 4.3）。
+    ///
+    /// 一時ファイルに書き出してプレビュー.app で開く方式はやめた。
+    /// プレビューはウィンドウに合わせて画像を拡大するため 1x の
+    /// スクリーンショットがぼやけて見え、要求 4.3 の「等倍より大きく
+    /// 拡大はしない」に反する。自前のウィンドウなら等倍で出せる。
+    private func showResult(_ image: CGImage) {
+        let window = ResultWindow()
+        resultWindow = window
+        window.onClose = { [weak self] in
+            // 画像を解放するため参照を切る（非機能要求・メモリ）。
+            self?.resultWindow = nil
         }
+        window.show(image: image)
     }
 
     private func presentError(_ error: Error) {
