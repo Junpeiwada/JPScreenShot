@@ -4,11 +4,31 @@ options:
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
+  # Xcode の「Update to recommended settings」警告を出さないため、
+  # 最終アップグレード確認バージョンを現在の Xcode に合わせる。
+  # Xcode 側のボタンで直すと .xcodeproj（生成物）が書き換わり、
+  # 次の xcodegen generate で消えるので project.yml 側で指定する。
+  xcodeVersion: "2650"
 
 settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
+    # 以下は Xcode 26.5 の新規プロジェクトテンプレートが既定で入れる設定。
+    # 未設定だと「推奨設定に更新」警告の対象になる。
+    # （/Applications/Xcode.app/.../Base_ProjectSettings.xctemplate と差分を取って特定）
+    #
+    # Swift 6.2+ の Approachable Concurrency。nonisolated(nonsending) を
+    # 既定にするなど、並行処理の記述を素直にする。
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    # import したモジュールのメンバー可視性を厳密にする（Swift 7 で既定化予定）。
+    SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY: YES
+    # ビルドスクリプトをサンドボックス内で実行する。
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # ローカライズは String Catalog（.xcstrings）を優先する。
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    # アセットカタログから Swift のシンボル拡張を生成する。
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
     ARCHS: "$(ARCHS_STANDARD)"
