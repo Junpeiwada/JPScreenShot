@@ -26,15 +26,26 @@ struct ResultView: View {
     private var imagePane: some View {
         GeometryReader { geometry in
             let size = fittedSize(in: geometry.size)
+            // 等倍で収まるかどうか。等倍なら .resizable() を通さず
+            // そのまま描く（同じ寸法でもリサンプリング経路に入ると
+            // わずかに甘くなることがあるため）。
+            let isExact = size.width >= CGFloat(model.image.width) - 0.5
             ScrollView([.horizontal, .vertical]) {
-                Image(decorative: model.image, scale: 1.0)
-                    .resizable()
-                    .frame(width: size.width, height: size.height)
-                    .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: .center
-                    )
+                Group {
+                    if isExact {
+                        Image(decorative: model.image, scale: 1.0)
+                    } else {
+                        Image(decorative: model.image, scale: 1.0)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: size.width, height: size.height)
+                    }
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .center
+                )
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
