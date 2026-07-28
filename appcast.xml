@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>JPScreenShot</title>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Tue, 28 Jul 2026 07:13:33 +0000</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/Junpeiwada/JPScreenShot/releases/download/v0.1.0/JPScreenShot-0.1.0.zip" length="1268135" type="application/octet-stream" sparkle:edSignature="N0lL/GfonG06XwoHJ8o5yMtR9Eo6p31+IO61UKnlnk39B1o9nYZpLNl5y/vBmm8KXnC0pnPQcI98ChID7cHyDg=="/>
+        </item>
+    </channel>
+</rss>

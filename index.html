@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JPScreenShot — 範囲キャプチャ + OCR for macOS</title>
+<meta name="description" content="macOS のメニューバーから範囲キャプチャし、画像とテキストの両方を同時に得る。OCR はオンデバイス処理で外部送信なし。">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #2563eb;
+    --code-bg: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --fg: #e6e8eb;
+      --muted: #9ca3af;
+      --line: #262b33;
+      --accent: #60a5fa;
+      --code-bg: #161a20;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  header { padding: 72px 0 40px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 2.4rem; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .tagline { font-size: 1.15rem; color: var(--muted); margin: 0 0 28px; }
+  .cta {
+    display: inline-block; background: var(--accent); color: #fff;
+    padding: 12px 26px; border-radius: 8px; text-decoration: none; font-weight: 600;
+  }
+  .cta:hover { opacity: .88; }
+  .req { font-size: .9rem; color: var(--muted); margin-top: 12px; }
+  h2 { font-size: 1.45rem; margin: 48px 0 16px; letter-spacing: -0.01em; }
+  p { margin: 0 0 16px; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: .95rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; }
+  kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em;
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 6px;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em;
+    background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
+  }
+  .note {
+    border-left: 3px solid var(--accent); padding: 4px 0 4px 16px;
+    color: var(--muted); margin: 0 0 20px;
+  }
+  ul { padding-left: 22px; margin: 0 0 16px; }
+  li { margin-bottom: 6px; }
+  footer {
+    margin-top: 64px; padding: 28px 0 48px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: .9rem;
+  }
+  a { color: var(--accent); }
+  .tablewrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>JPScreenShot</h1>
+  <p class="tagline">
+    メニューバーから範囲キャプチャ。<strong>画像とテキストを同時に</strong>取得して、
+    結果を見てからどちらを使うか選べる macOS アプリ。
+  </p>
+  <a class="cta" href="https://github.com/Junpeiwada/JPScreenShot/releases/latest">最新版をダウンロード</a>
+  <p class="req">macOS 26 以降 / Apple Silicon・Intel 対応 / Developer ID 署名・公証済み</p>
+</header>
+
+<h2>何が違うのか</h2>
+<p>
+  画面の文字は「焼き込まれたピクセル」なので、コピー不可の PDF や独自レンダラのアプリでは選択できない。
+  macOS 標準のライブテキストやショートカット.app でも似たことはできるが、手数が多い
+  （スクショ → サムネイルを開く → 選択 → コピー）か、テキストしか取れない。
+</p>
+<p>
+  JPScreenShot は <strong>1 回のキャプチャで画像とテキストの両方を得る</strong>。
+  画像は即座に表示され、テキストは OCR が終わり次第埋まるので、OCR を待たされない。
+</p>
+
+<h2>使い方</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>操作</th><th>動作</th></tr></thead>
+  <tbody>
+    <tr><td>メニューバーアイコンを<strong>クリック</strong></td><td>範囲選択が始まる（メニューを開く手間がない）</td></tr>
+    <tr><td>ドラッグ</td><td>範囲を選択してキャプチャ</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>選択をキャンセル</td></tr>
+    <tr><td>アイコンを<strong>右クリック</strong></td><td>メニュー（認識モード切替・環境設定・終了）</td></tr>
+  </tbody>
+</table>
+</div>
+<ul>
+  <li><strong>画像をコピー</strong> / <strong>テキストをコピー</strong> / <strong>保存</strong>（PNG）</li>
+  <li>テキストは<strong>編集可能</strong>。誤認識をその場で直してからコピーできる</li>
+  <li><strong>等倍</strong>チェックで、ピクセルそのままの表示と縮小表示を切り替え</li>
+  <li>ウィンドウは自動で閉じない</li>
+</ul>
+
+<h2>認識モード</h2>
+<p>用途に応じて 2 つ。結果ウィンドウ内で切り替えると<strong>即座に再認識</strong>され、選んだモードは次回の既定として記憶される。</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>モード</th><th>認識言語</th><th>言語補正</th><th>後処理</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><strong>日本語</strong>（既定）</td><td>ja-JP, en-US</td><td>on</td><td>なし</td><td>文章・UI テキスト</td></tr>
+    <tr><td><strong>コード</strong></td><td>en-US</td><td>off</td><td>全角 → 半角</td><td>ソースコード・パス・エラー</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>実測精度</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>ケース</th><th>結果</th></tr></thead>
+  <tbody>
+    <tr><td>日本語の文章（28pt / 11pt）</td><td><strong>100%</strong>（完全一致）</td></tr>
+    <tr><td>コード（コードモード）</td><td><strong>97.0%</strong></td></tr>
+    <tr><td>コード（日本語モードで撮った場合）</td><td>69.7%</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+  コードモードは日本語を認識候補から外すことで、<code>l</code> が <code>1</code> に化ける、
+  <code>&amp;&amp;</code> が <code>88</code> になる、括弧が全角化する、といった誤りを防ぐ。<strong>差は 27.3 ポイント</strong>。
+</p>
+<p class="note">
+  残る誤りは <code>O</code>（大文字オー）→ <code>0</code> のような字形の混同で、これは意図的に自動補正していない。
+  文脈がないとどちらが正しいか判断できず、正しい文字を壊す危険があるため。結果ウィンドウで直す前提。
+</p>
+
+<h2>プライバシー</h2>
+<p>
+  外部依存はない。OCR も Vision.framework によるオンデバイス処理で、
+  <strong>画像もテキストも外部に送信しない</strong>。
+  キャプチャ画像は「保存」を押したときだけディスクに書き込まれる。
+</p>
+<p>
+  初回のキャプチャ時に<strong>画面収録の権限</strong>を求められる。これは macOS が画面の内容を読むアプリに要求するもので、
+  システム設定 → プライバシーとセキュリティ → 画面収録 から確認・変更できる。
+</p>
+
+<h2>自動更新</h2>
+<p>
+  Sparkle による自動更新に対応している。新しい版が出るとアプリが知らせ、
+  メニューの「更新を確認…」からいつでも手動確認できる。
+  更新の配信物は EdDSA 署名で検証される。
+</p>
+
+<footer>
+  <p>
+    <a href="https://github.com/Junpeiwada/JPScreenShot">GitHub リポジトリ</a> ·
+    <a href="https://github.com/Junpeiwada/JPScreenShot/releases">リリース一覧</a>
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
