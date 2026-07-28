@@ -1,0 +1,164 @@
+import AppKit
+
+// メニューバーの NSStatusItem を管理する。
+//
+// 要求 4.1 の要点は「クリック＝キャプチャ開始」であること。NSStatusItem に
+// menu を代入すると左クリックでもメニューが開いてしまい、この要求を満たせない。
+// そのため menu は代入せず、クリック種別を自分で判定して振り分ける。
+@MainActor
+final class MenuBarController {
+    private let statusItem: NSStatusItem
+    private let menu: NSMenu
+
+    /// 左クリック時（範囲選択キャプチャの開始）
+    var onCapture: (() -> Void)?
+    /// 環境設定を開く
+    var onOpenSettings: (() -> Void)?
+    /// このアプリについて
+    var onShowAbout: (() -> Void)?
+    /// 認識モードの変更
+    var onSelectMode: ((RecognitionMode) -> Void)?
+    /// 現在の認識モード（メニューのチェック表示に使う）
+    var currentMode: (() -> RecognitionMode)?
+
+    init() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        menu = NSMenu()
+
+        if let button = statusItem.button {
+            // テンプレート画像にするとダークモード/ライトモードに自動追従する。
+            let image = NSImage(
+                systemSymbolName: "text.viewfinder",
+                accessibilityDescription: "JPScreenShot"
+            )
+            image?.isTemplate = true
+            button.image = image
+            button.target = self
+            button.action = #selector(handleClick(_:))
+            // 右クリックも action に流す（既定では左クリックのみ）。
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+
+        buildMenu()
+    }
+
+    // MARK: - クリック処理
+
+    @objc private func handleClick(_ sender: NSStatusBarButton) {
+        // 右クリック、または修飾キーとして Control を押した左クリックはメニュー。
+        let event = NSApp.currentEvent
+        let isRightClick = event?.type == .rightMouseUp
+        let isControlClick = event?.modifierFlags.contains(.control) ?? false
+
+        if isRightClick || isControlClick {
+            showMenu()
+        } else {
+            onCapture?()
+        }
+    }
+
+    private func showMenu() {
+        refreshModeChecks()
+        // menu を代入したままだと左クリックでも開いてしまうため、
+        // 表示する瞬間だけ差し込んですぐ外す。
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
+    }
+
+    // MARK: - メニュー構築
+
+    private func buildMenu() {
+        menu.removeAllItems()
+
+        let capture = NSMenuItem(
+            title: "範囲を選択してキャプチャ",
+            action: #selector(menuCapture),
+            keyEquivalent: ""
+        )
+        capture.target = self
+        menu.addItem(capture)
+
+        menu.addItem(.separator())
+
+        // 認識モードの切り替え（6.3）
+        let modeHeader = NSMenuItem(title: "認識モード", action: nil, keyEquivalent: "")
+        modeHeader.isEnabled = false
+        menu.addItem(modeHeader)
+
+        for mode in RecognitionMode.allCases {
+            let item = NSMenuItem(
+                title: "　\(mode.displayName)",
+                action: #selector(menuSelectMode(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = mode.rawValue
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+
+        let settings = NSMenuItem(
+            title: "環境設定…",
+            action: #selector(menuSettings),
+            keyEquivalent: ","
+        )
+        settings.target = self
+        menu.addItem(settings)
+
+        let about = NSMenuItem(
+            title: "JPScreenShot について",
+            action: #selector(menuAbout),
+            keyEquivalent: ""
+        )
+        about.target = self
+        menu.addItem(about)
+
+        menu.addItem(.separator())
+
+        let quit = NSMenuItem(
+            title: "終了",
+            action: #selector(menuQuit),
+            keyEquivalent: "q"
+        )
+        quit.target = self
+        menu.addItem(quit)
+    }
+
+    /// 現在の認識モードにチェックを付ける。
+    private func refreshModeChecks() {
+        let active = currentMode?() ?? .japanese
+        for item in menu.items {
+            guard let raw = item.representedObject as? String,
+                  let mode = RecognitionMode(rawValue: raw)
+            else { continue }
+            item.state = (mode == active) ? .on : .off
+        }
+    }
+
+    // MARK: - メニュー項目のアクション
+
+    @objc private func menuCapture() {
+        onCapture?()
+    }
+
+    @objc private func menuSelectMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = RecognitionMode(rawValue: raw)
+        else { return }
+        onSelectMode?(mode)
+    }
+
+    @objc private func menuSettings() {
+        onOpenSettings?()
+    }
+
+    @objc private func menuAbout() {
+        onShowAbout?()
+    }
+
+    @objc private func menuQuit() {
+        NSApp.terminate(nil)
+    }
+}

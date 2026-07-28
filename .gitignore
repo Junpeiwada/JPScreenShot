@@ -1,0 +1,12 @@
+# XcodeGen の生成物（project.yml を版管理する）
+*.xcodeproj
+
+# ビルド成果物
+build/
+DerivedData/
+dd/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
