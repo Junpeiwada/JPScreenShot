@@ -1,6 +1,6 @@
 name: JPScreenShot
 options:
-  bundleIdPrefix: com.soneru
+  bundleIdPrefix: com.junpeiwada
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
@@ -41,18 +41,46 @@ settings:
     CODE_SIGN_IDENTITY: "Apple Development"
     DEVELOPMENT_TEAM: L897K2C26B
 
+packages:
+  # アプリ内自動更新。GitHub Pages の appcast を参照して更新する。
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.9.3"
+
 targets:
   JPScreenShot:
     type: application
     platform: macOS
     sources:
       - path: Sources
+    dependencies:
+      - package: Sparkle
+        product: Sparkle
+    # Sparkle の任意キー（SUFeedURL / SUPublicEDKey）は INFOPLIST_KEY_* では
+    # 注入できないため、実 Info.plist を XcodeGen で生成する。
+    # 設定変更時は project.yml を編集して再生成すること（こちらが真実のソース）。
+    info:
+      path: JPScreenShot-Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: ""
+        # Dock に出さずメニューバーのみに常駐する（非機能要求・常駐）
+        LSUIElement: true
+        # Sparkle: 更新フィード（GitHub Pages でホストする appcast）
+        SUFeedURL: "https://junpeiwada.github.io/JPScreenShot/appcast.xml"
+        # Sparkle: appcast 署名検証用の EdDSA 公開鍵。
+        # 対応する秘密鍵はキーチェーンに保存され、CI 用に Secret
+        # SPARKLE_PRIVATE_KEY へ登録する（公開鍵なので版管理してよい）。
+        SUPublicEDKey: "1waFVv6T8N0Pp9sOGAqQ8fNmPloBpc++7MssyUTHRe8="
+        # 起動時に自動で更新確認（既定 ON、間隔 24h）。環境設定で切替可能。
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.soneru.JPScreenShot
-        GENERATE_INFOPLIST_FILE: YES
-        # Dock に出さずメニューバーのみに常駐する（非機能要求・常駐）
-        INFOPLIST_KEY_LSUIElement: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPScreenShot
         COMBINE_HIDPI_IMAGES: YES
         # App Sandbox は無効。デスクトップ保存（SAV-01）を追加の許可なしに
         # 動かすため。詳細は Docs/実装計画.md 8.1 を参照
@@ -68,5 +96,5 @@ targets:
       - target: JPScreenShot
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.soneru.JPScreenShotTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPScreenShotTests
         GENERATE_INFOPLIST_FILE: YES

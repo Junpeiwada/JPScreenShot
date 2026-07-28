@@ -10,3 +10,6 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# コードカバレッジの副産物
+*.profraw
