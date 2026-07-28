@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-// 環境設定（要求 4.1 / CPY-04 / SAV-04）。
+// 環境設定（要求 4.1 / CAP-07 / CPY-04 / SAV-04）。
 //
-// 第 1 版で扱う設定は 3 つだけに絞る。
+// 扱う設定は次の 4 つに絞る。
 // - 認識モードの既定（6.3「直前に使ったモードを記憶する」の確認・変更用）
+// - ウィンドウキャプチャに影を含めるか（CAP-07）
 // - コピー後にウィンドウを閉じるか（CPY-04）
 // - 画像の保存先（SAV-04「環境設定で変更できることが望ましい」）
 struct SettingsView: View {
@@ -27,7 +28,21 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("キャプチャ") {
+                Toggle("ウィンドウに影を付ける", isOn: $settings.includeWindowShadow)
+                Text("ウィンドウをクリックしてキャプチャしたときに、ドロップシャドウを付けます。画質は落ちません。オフにするとウィンドウの枠でぴったり切り取ります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("結果ウィンドウ") {
+                Toggle("画像を等倍で表示する", isOn: $settings.actualSize)
+                Text("画面のピクセルをそのまま表示します。オフにするとウィンドウに合わせて縮小しますが、リサンプリングでぼやけます。結果ウィンドウの「等倍」チェックでも切り替えられ、そこでの選択がここに記憶されます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Toggle("コピーしたらウィンドウを閉じる", isOn: $settings.closeAfterCopy)
                 Text("オフのままなら、閉じるのは「閉じる」ボタンか Esc だけになります。")
                     .font(.caption)

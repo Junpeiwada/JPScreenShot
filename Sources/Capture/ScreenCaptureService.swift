@@ -20,6 +20,17 @@ enum CaptureError: LocalizedError {
     }
 }
 
+/// キャプチャの対象。範囲選択とウィンドウ選択を 1 つの結果型で扱う。
+///
+/// SelectionCoordinator の完了ハンドラが「矩形 or ウィンドウ or キャンセル」を
+/// 返せるようにするためのもの。Optional の CGRect だけでは表現できない。
+enum CaptureTarget {
+    /// ドラッグで選択した矩形（AppKit グローバル座標）。
+    case region(CGRect)
+    /// クリックで選択したウィンドウ（CAP-06）。
+    case window(SCWindow)
+}
+
 @MainActor
 enum ScreenCaptureService {
 
@@ -120,5 +131,58 @@ enum ScreenCaptureService {
         } catch {
             throw CaptureError.captureFailed(error)
         }
+    }
+
+    /// 指定したウィンドウ 1 つをキャプチャする（CAP-06 / CAP-07）。
+    /// - Parameters:
+    ///   - window: 対象ウィンドウ。
+    ///   - includeShadow: ドロップシャドウを付けるか（CAP-07、環境設定で選べる）。
+    /// - Returns: Retina 解像度を維持した CGImage。
+    static func capture(
+        window: SCWindow,
+        includeShadow: Bool
+    ) async throws -> CGImage {
+        // desktopIndependentWindow フィルタは対象ウィンドウだけを切り出す。
+        // 背後のウィンドウや壁紙は写らず、重なりも無視できる（sourceRect 方式では
+        // 手前のウィンドウが写り込んでしまう）。
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+
+        let config = SCStreamConfiguration()
+        // ★影は ScreenCaptureKit に任せない（常に true = 影を除外して撮る）。
+        //
+        // ignoreShadowsSingleWindow = false にすれば影付きで撮れるが、
+        // 撮影範囲が広がるのに contentRect は影を含まない範囲を返すため、
+        // 内容が縮小されてぼやける（実測: 鮮明度 7.684 → 4.625）。
+        // 影が必要な場合は ShadowCompositor で後から合成する。
+        config.ignoreShadowsSingleWindow = true
+        config.showsCursor = false
+        config.captureResolution = .best
+        config.scalesToFit = false
+
+        // CAP-02: Retina 解像度を維持する。
+        //
+        // 指定した width/height に内容が合わせ込まれるため、実際の撮影範囲と
+        // 一致していなければ必ずスケーリングが入る。影を除外した今、
+        // 撮影範囲は contentRect と一致するのでこれで等倍になる。
+        // width/height を省略すると既定サイズ（1920×1080）に強制されて
+        // ぼやけるため、省略はできない。
+        let scale = CGFloat(filter.pointPixelScale)
+        let contentSize = filter.contentRect.size
+        config.width = Int((contentSize.width * scale).rounded())
+        config.height = Int((contentSize.height * scale).rounded())
+
+        let image: CGImage
+        do {
+            image = try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: config
+            )
+        } catch {
+            throw CaptureError.captureFailed(error)
+        }
+
+        // CAP-07: 影は等倍で撮った画像の上に合成する。
+        guard includeShadow else { return image }
+        return ShadowCompositor.addShadow(to: image, scale: scale)
     }
 }

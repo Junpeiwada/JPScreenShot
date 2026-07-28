@@ -34,6 +34,28 @@ enum ScreenGeometry {
         )
     }
 
+    /// CoreGraphics 座標（左上原点）→ AppKit 座標（左下原点）へ変換する。
+    ///
+    /// `SCWindow.frame` は CoreGraphics 系で来るため、それをオーバーレイ上に
+    /// 描く（ウィンドウ枠のハイライト）ときにこちらを使う。
+    /// 変換式は `convertToCoreGraphics` と同一の対合であり、往復で元に戻る。
+    static func convertToAppKit(_ rect: CGRect) -> CGRect {
+        CGRect(
+            x: rect.origin.x,
+            y: primaryScreenHeight - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    /// AppKit 座標の点 → CoreGraphics 座標の点へ変換する。
+    ///
+    /// 矩形と違い高さの引き算がないため、`convertToCoreGraphics` を
+    /// 高さ 0 の矩形で代用すると誤りやすい。点用に分けておく。
+    static func convertPointToCoreGraphics(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x, y: primaryScreenHeight - point.y)
+    }
+
     /// 指定した AppKit 座標の矩形を最も多く含むスクリーンを返す。
     ///
     /// 範囲選択がディスプレイ境界をまたいだ場合、交差面積が最大の画面を採用する。

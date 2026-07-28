@@ -31,7 +31,17 @@ final class ResultViewModel {
     /// 既定は true。1x ディスプレイでは縮小すると必ずリサンプリングで
     /// ぼやけるため、既定では等倍のまま出してスクロールで見せる。
     /// false にするとウィンドウに合わせて縮小表示する。
-    var actualSize: Bool = true
+    ///
+    /// 選択は次回以降の既定として記憶する。
+    ///
+    /// 値を複製せず Settings を直接読み書きする。環境設定にも同じ項目が
+    /// あるため、複製すると「環境設定で切り替えたのに開いている結果
+    /// ウィンドウが変わらない」というずれが起きる。Settings は
+    /// @Observable なので、どちらから変えても両方の表示が追従する。
+    var actualSize: Bool {
+        get { Settings.shared.actualSize }
+        set { Settings.shared.actualSize = newValue }
+    }
 
     /// ウィンドウを閉じる要求。
     var requestClose: (() -> Void)?

@@ -16,6 +16,18 @@ final class OverlayView: NSView {
         }
     }
 
+    /// カーソル下のウィンドウ枠（このビューのローカル座標）。nil なら該当なし。
+    ///
+    /// クリックでウィンドウをキャプチャできること（CAP-06）を事前に伝えるため、
+    /// ドラッグ開始前だけハイライトする。ドラッグ中は範囲選択に集中させたいので
+    /// SelectionCoordinator 側で nil にする。
+    var hoveredWindowRect: CGRect? {
+        didSet {
+            guard hoveredWindowRect != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
     /// このビューが載っているスクリーンの倍率。寸法をピクセルで出すのに使う。
     /// 非 Retina 環境もあるため既定は 1.0（等倍）とし、嘘の寸法を出さない。
     var backingScale: CGFloat = 1.0
@@ -29,6 +41,8 @@ final class OverlayView: NSView {
     var onMouseDown: ((CGPoint) -> Void)?
     var onMouseDragged: ((CGPoint) -> Void)?
     var onMouseUp: ((CGPoint) -> Void)?
+    /// カーソル移動の通知。ウィンドウ枠のハイライト更新に使う（CAP-06）。
+    var onMouseMoved: ((CGPoint) -> Void)?
 
     override var isOpaque: Bool { false }
 
@@ -72,6 +86,7 @@ final class OverlayView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         NSCursor.crosshair.set()
+        onMouseMoved?(NSEvent.mouseLocation)
     }
 
     /// マウス追跡領域を張り直す。ウィンドウのリサイズや表示直後に呼ばれる。
@@ -104,6 +119,8 @@ final class OverlayView: NSView {
         context.fill(bounds)
 
         guard let selection = selectionRect, selection.width > 0, selection.height > 0 else {
+            // 範囲選択が始まっていないときだけウィンドウ枠を示す（CAP-06）。
+            drawHoveredWindowHighlight(in: context)
             return
         }
 
@@ -118,6 +135,30 @@ final class OverlayView: NSView {
         context.stroke(rect)
 
         drawDimensionLabel(for: selection, in: context)
+    }
+
+    /// カーソル下のウィンドウ枠を淡くハイライトする（CAP-06）。
+    ///
+    /// 「クリックすればこのウィンドウが撮れる」ことを事前に見せるのが目的。
+    /// 選択枠（白の実線 + 黒の縁取り）とは意図的に見た目を変えてある。
+    /// 同じ描き方にすると、確定した選択とこれから起きうる候補の区別が
+    /// つかなくなる。青系の塗りと破線でシステムの選択表現に寄せる。
+    private func drawHoveredWindowHighlight(in context: CGContext) {
+        guard let rect = hoveredWindowRect, rect.width > 0, rect.height > 0 else { return }
+
+        // 画面外まで伸びる枠を描いても無駄なので可視範囲に切る。
+        let visible = rect.intersection(bounds)
+        guard !visible.isNull, !visible.isEmpty else { return }
+
+        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor)
+        context.fill(visible)
+
+        context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.9).cgColor)
+        context.setLineWidth(2.0)
+        context.setLineDash(phase: 0, lengths: [6, 4])
+        context.stroke(rect.insetBy(dx: 1, dy: 1))
+        // 破線設定は context に残るため、後続の描画に漏らさないよう戻す。
+        context.setLineDash(phase: 0, lengths: [])
     }
 
     /// 寸法（幅 × 高さ px）をカーソル近傍に描く。

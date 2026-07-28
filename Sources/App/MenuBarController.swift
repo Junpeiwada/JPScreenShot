@@ -18,6 +18,8 @@ final class MenuBarController {
     var onOpenSettings: (() -> Void)?
     /// このアプリについて
     var onShowAbout: (() -> Void)?
+    /// 更新を確認する（Sparkle）
+    var onCheckForUpdates: (() -> Void)?
     /// 認識モードの変更
     var onSelectMode: ((RecognitionMode) -> Void)?
     /// 現在の認識モード（メニューのチェック表示に使う）
@@ -140,6 +142,14 @@ final class MenuBarController {
         settings.target = self
         menu.addItem(settings)
 
+        let checkUpdates = NSMenuItem(
+            title: "更新を確認…",
+            action: #selector(menuCheckForUpdates),
+            keyEquivalent: ""
+        )
+        checkUpdates.target = self
+        menu.addItem(checkUpdates)
+
         let about = NSMenuItem(
             title: "JPScreenShot について",
             action: #selector(menuAbout),
@@ -185,6 +195,10 @@ final class MenuBarController {
 
     @objc private func menuSettings() {
         onOpenSettings?()
+    }
+
+    @objc private func menuCheckForUpdates() {
+        onCheckForUpdates?()
     }
 
     @objc private func menuAbout() {

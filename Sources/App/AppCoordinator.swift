@@ -23,6 +23,8 @@ final class AppCoordinator {
     private var resultWindow: ResultWindow?
     /// 環境設定ウィンドウ。開いている間だけ保持する。
     private var settingsWindow: SettingsWindow?
+    /// アプリ内自動更新。生成時点で定期確認が動き出すため保持し続ける。
+    private let updater = UpdaterController()
 
     init() {
         menuBar.onCapture = { [weak self] in
@@ -41,6 +43,9 @@ final class AppCoordinator {
         }
         menuBar.onShowAbout = { [weak self] in
             self?.showAbout()
+        }
+        menuBar.onCheckForUpdates = { [weak self] in
+            self?.updater.checkForUpdates()
         }
     }
 
@@ -64,26 +69,32 @@ final class AppCoordinator {
 
         // 実装計画 6.4: SCShareableContent の取得は時間がかかるため、
         // オーバーレイ表示と同時に先読みし、ドラッグ中に完了させる。
-        preloadedContent = nil
-        preloadTask = Task { @MainActor in
-            self.preloadedContent = try? await ScreenCaptureService.fetchShareableContent()
-        }
-
         // 範囲選択中はアイコンを変えて状態を示す。
         menuBar.setIconState(.capturing)
 
         let coordinator = SelectionCoordinator()
         selection = coordinator
-        coordinator.begin { [weak self] rect in
+
+        preloadedContent = nil
+        preloadTask = Task { @MainActor in
+            let content = try? await ScreenCaptureService.fetchShareableContent()
+            self.preloadedContent = content
+            // CAP-06: クリックによるウィンドウ選択は content が必要なので、
+            // 取得できた時点で選択中のコーディネータに渡す。begin の時点では
+            // まだ取得が終わっていない。
+            coordinator.updateShareableContent(content)
+        }
+
+        coordinator.begin(content: preloadedContent) { [weak self] target in
             guard let self else { return }
             self.selection = nil
             self.menuBar.setIconState(.idle)
-            guard let rect else {
+            guard let target else {
                 // キャンセル（CAP-05）。先読みも破棄する。
                 self.discardPreload()
                 return
             }
-            self.performCapture(rect: rect)
+            self.performCapture(target: target)
         }
     }
 
@@ -93,19 +104,29 @@ final class AppCoordinator {
         preloadedContent = nil
     }
 
-    private func performCapture(rect: CGRect) {
+    private func performCapture(target: CaptureTarget) {
         Task { @MainActor in
             defer { self.discardPreload() }
             do {
-                // 先読みの完了を待つ。結果は preloadedContent に入る。
-                // 失敗していた場合は nil のまま capture 側で取り直す。
-                await self.preloadTask?.value
-                let image = try await ScreenCaptureService.capture(
-                    appKitRect: rect,
-                    content: self.preloadedContent
-                )
-                // 段階 4 で結果ウィンドウに差し替える。現時点では取得できた
-                // ことを確認できるようにプレビューで開く。
+                let image: CGImage
+                switch target {
+                case .region(let rect):
+                    // 先読みの完了を待つ。結果は preloadedContent に入る。
+                    // 失敗していた場合は nil のまま capture 側で取り直す。
+                    await self.preloadTask?.value
+                    image = try await ScreenCaptureService.capture(
+                        appKitRect: rect,
+                        content: self.preloadedContent
+                    )
+                case .window(let window):
+                    // CAP-06: ウィンドウ単位のキャプチャ。フィルタが対象を
+                    // 直接指すので content の待ち合わせは不要
+                    // （そもそも content がなければ window は選ばれない）。
+                    image = try await ScreenCaptureService.capture(
+                        window: window,
+                        includeShadow: self.settings.includeWindowShadow
+                    )
+                }
                 showResult(image)
             } catch {
                 presentError(error)
@@ -173,7 +194,9 @@ final class AppCoordinator {
             どちらでもコピーできるようにするアプリです。
 
             使い方:
-            ・メニューバーのアイコンをクリックすると範囲選択が始まります
+            ・メニューバーのアイコンをクリックすると選択が始まります
+            ・ドラッグで範囲をキャプチャ
+            ・ウィンドウをクリックするとそのウィンドウをキャプチャ
             ・右クリックでメニュー（認識モードの切替・環境設定）
             ・Esc で選択をキャンセルできます
 

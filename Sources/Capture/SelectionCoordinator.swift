@@ -1,13 +1,18 @@
 import AppKit
+import ScreenCaptureKit
 
-// 範囲選択モードの制御（要求 4.2 / CAP-03 / CAP-05）。
+// 範囲選択モードの制御（要求 4.2 / CAP-03 / CAP-05 / CAP-06）。
 //
 // すべてのスクリーンにオーバーレイを出し、どの画面でも選択できるようにする。
 // どれか 1 つで確定したら全部閉じる。
 //
+// 操作の割り当て:
+// - ドラッグ → その矩形をキャプチャ
+// - クリック（ドラッグなし）→ その位置のウィンドウをキャプチャ（CAP-06）
+//
 // キャンセル条件（4.2）:
 // - Esc キー
-// - ドラッグせずクリックしただけ（誤クリック対策）
+// - クリックした位置にウィンドウがない（デスクトップなど）
 // - 選択範囲が極端に小さい（8px 未満）
 @MainActor
 final class SelectionCoordinator {
@@ -29,18 +34,38 @@ final class SelectionCoordinator {
     /// 実際にドラッグされたか（クリックのみのキャンセル判定用）。
     private var didDrag = false
 
-    private var completion: ((CGRect?) -> Void)?
+    private var completion: ((CaptureTarget?) -> Void)?
+
+    /// ウィンドウ候補を引くための共有可能コンテンツ（CAP-06）。
+    ///
+    /// AppCoordinator が先読みしているものを渡してもらう。ここで取り直すと
+    /// クリックのたびに数百 ms 待たされる。先読みが間に合っていない場合は
+    /// nil のままで、ウィンドウのハイライトと確定が単に無効になる。
+    private var shareableContent: SCShareableContent?
+
+    /// 現在ハイライトしているウィンドウ。クリック時にこれを確定する。
+    ///
+    /// mouseUp の時点で引き直すのではなくホバーの結果を使うのは、
+    /// 「見えているハイライトと撮れるものを必ず一致させる」ため。
+    private var hoveredWindow: SCWindow?
 
     /// 範囲選択を開始する。
-    /// - Parameter completion: 確定した矩形（AppKit グローバル座標）。
-    ///   キャンセル時は nil。
-    func begin(completion: @escaping (CGRect?) -> Void) {
+    /// - Parameters:
+    ///   - content: ウィンドウ選択に使う共有可能コンテンツ（CAP-06）。
+    ///     nil の場合、クリックによるウィンドウ選択は無効になる。
+    ///   - completion: 確定した対象。キャンセル時は nil。
+    func begin(
+        content: SCShareableContent?,
+        completion: @escaping (CaptureTarget?) -> Void
+    ) {
         // 二重起動を防ぐ。
         guard windows.isEmpty else { return }
 
         self.completion = completion
+        self.shareableContent = content
         anchorPoint = nil
         didDrag = false
+        hoveredWindow = nil
 
         // すべてのスクリーンにオーバーレイを出す（CAP-03）。
         for screen in NSScreen.screens {
@@ -56,6 +81,24 @@ final class SelectionCoordinator {
 
         installKeyMonitor()
         observeScreenChanges()
+        // 初期位置のウィンドウをハイライトしておく。オーバーレイが出た直後は
+        // マウスが動いていないため mouseMoved が来ず、動かすまで
+        // 「クリックで撮れる」ことに気づけない。
+        updateHoveredWindow(at: NSEvent.mouseLocation)
+    }
+
+    /// 先読みした共有可能コンテンツを後から渡す（CAP-06）。
+    ///
+    /// SCShareableContent の取得には時間がかかるため、AppCoordinator は
+    /// オーバーレイ表示と並行して取得する（実装計画 6.4）。begin の時点では
+    /// まだ nil なので、完了したらここで注入してハイライトを有効にする。
+    /// 選択が既に終わっていた場合（windows が空）は何もしない。
+    func updateShareableContent(_ content: SCShareableContent?) {
+        guard !windows.isEmpty else { return }
+        shareableContent = content
+        // 注入時点のカーソル位置で即座にハイライトを出す。次に動かすまで
+        // 反映されないと、素早くクリックしたときに何も撮れない。
+        updateHoveredWindow(at: NSEvent.mouseLocation)
     }
 
     // MARK: - イベント処理
@@ -76,11 +119,18 @@ final class SelectionCoordinator {
         view.onMouseDragged = { [weak self] point in
             guard let self, self.anchorPoint != nil else { return }
             self.didDrag = true
+            // 範囲選択に入ったらウィンドウのハイライトは消す。両方出したままだと
+            // どちらが撮れるのか分からなくなる。
+            self.clearHoveredWindow()
             self.updateSelection(to: point)
         }
         view.onMouseUp = { [weak self] point in
             guard let self else { return }
             self.handleMouseUp(at: point)
+        }
+        view.onMouseMoved = { [weak self] point in
+            guard let self, self.anchorPoint == nil else { return }
+            self.updateHoveredWindow(at: point)
         }
     }
 
@@ -90,14 +140,28 @@ final class SelectionCoordinator {
             finish(with: nil)
             return
         }
-        let rect = Self.rect(from: anchor, to: point)
 
-        // ドラッグしていない（クリックのみ）はキャンセル（4.2 誤クリック対策）。
+        // ドラッグしていない（クリックのみ）→ ウィンドウキャプチャ（CAP-06）。
+        //
+        // 従来はここを誤クリック対策のキャンセルにしていたが、ユーザー要求で
+        // ウィンドウ選択に割り当てた。クリック位置にウィンドウがない場合は
+        // 従来どおりキャンセルするので、誤クリックの逃げ道は残っている。
         guard didDrag else {
-            finish(with: nil)
+            if let window = hoveredWindow {
+                finish(with: .window(window))
+            } else {
+                finish(with: nil)
+            }
             return
         }
-        // 極端に小さい選択もキャンセル（4.2）。ピクセル基準で判定する。
+
+        let rect = Self.rect(from: anchor, to: point)
+        // 極端に小さい選択はキャンセル（4.2）。ピクセル基準で判定する。
+        //
+        // ここをウィンドウキャプチャに転用はしない。わずかに動いた場合は
+        // 「ウィンドウを撮ろうとして手が震えた」とも「小さすぎる範囲を
+        // 選んだ」とも解釈できるが、誤って意図しないウィンドウを撮るより
+        // 何もしない方が害が小さい。
         let scale = ScreenGeometry.screen(containing: rect)?.backingScaleFactor ?? 1
         guard rect.width * scale >= Self.minimumSideLengthInPixels,
               rect.height * scale >= Self.minimumSideLengthInPixels
@@ -105,7 +169,45 @@ final class SelectionCoordinator {
             finish(with: nil)
             return
         }
-        finish(with: rect)
+        finish(with: .region(rect))
+    }
+
+    // MARK: - ウィンドウのハイライト（CAP-06）
+
+    /// カーソル下のウィンドウを引き直し、全オーバーレイに反映する。
+    private func updateHoveredWindow(at point: CGPoint) {
+        guard let content = shareableContent else {
+            clearHoveredWindow()
+            return
+        }
+        guard let window = WindowPicker.window(at: point, in: content) else {
+            clearHoveredWindow()
+            return
+        }
+        // 同じウィンドウなら描画し直さない（windowID で比較する。
+        // SCWindow のインスタンスは content を取り直すと別物になる）。
+        guard window.windowID != hoveredWindow?.windowID else { return }
+        hoveredWindow = window
+
+        // SCWindow.frame は CoreGraphics 座標なので AppKit 座標に直してから
+        // 各オーバーレイのローカル座標へ落とす。
+        let globalRect = ScreenGeometry.convertToAppKit(window.frame)
+        for overlay in windows {
+            let frame = overlay.frame
+            overlay.overlayView.hoveredWindowRect = CGRect(
+                x: globalRect.origin.x - frame.origin.x,
+                y: globalRect.origin.y - frame.origin.y,
+                width: globalRect.width,
+                height: globalRect.height
+            )
+        }
+    }
+
+    private func clearHoveredWindow() {
+        hoveredWindow = nil
+        for overlay in windows {
+            overlay.overlayView.hoveredWindowRect = nil
+        }
     }
 
     /// キー入力は Esc のキャンセルだけを拾う（CAP-05）。
@@ -181,16 +283,18 @@ final class SelectionCoordinator {
 
     // MARK: - 終了処理
 
-    private func finish(with rect: CGRect?) {
+    private func finish(with target: CaptureTarget?) {
         let handler = completion
         completion = nil
         anchorPoint = nil
+        hoveredWindow = nil
+        shareableContent = nil
 
         // 実装計画 6.2: オーバーレイは「キャプチャ前に確実に閉じる」。
         // excludingWindows だけに頼らず、写り込みの可能性を物理的に消す。
         teardown()
 
-        handler?(rect)
+        handler?(target)
     }
 
     private func teardown() {
@@ -207,6 +311,7 @@ final class SelectionCoordinator {
             window.overlayView.onMouseDown = nil
             window.overlayView.onMouseDragged = nil
             window.overlayView.onMouseUp = nil
+            window.overlayView.onMouseMoved = nil
             window.orderOut(nil)
             window.close()
         }
