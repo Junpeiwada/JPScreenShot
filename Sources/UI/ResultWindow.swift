@@ -38,6 +38,10 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         // メニューバーアプリは通常非アクティブなので、明示的に前面に出す。
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+
+        // OCR-01: ウィンドウを出した後に自動で認識を開始する。
+        // 画像は先に見えているので、OCR の完了は待たせない（4.3）。
+        model.recognize()
     }
 
     /// 画像の大きさに合わせた初期サイズ。画面に収まる範囲に制限する。
@@ -59,11 +63,17 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         window?.close()
     }
 
+    /// メニューバーからモードが変更されたとき、開いているウィンドウにも反映する。
+    func applyMode(_ mode: RecognitionMode) {
+        model?.mode = mode
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
         // 非機能要求（メモリ）: キャプチャ画像は結果ウィンドウを閉じたら解放する。
         // 参照を明示的に切らないと NSWindow 側の保持で CGImage が残る。
+        model?.cancelRecognition()
         model?.requestClose = nil
         model = nil
         window?.delegate = nil

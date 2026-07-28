@@ -31,6 +31,8 @@ final class AppCoordinator {
         }
         menuBar.onSelectMode = { [weak self] mode in
             self?.settings.recognitionMode = mode
+            // 結果ウィンドウが開いていれば、そちらも即座に再認識する（6.3）。
+            self?.resultWindow?.applyMode(mode)
         }
         menuBar.onOpenSettings = { [weak self] in
             self?.openSettings()

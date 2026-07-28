@@ -20,14 +20,65 @@ final class ResultViewModel {
     /// OCR が 1 文字も取れなかったか（4.3）。
     var hasNoText: Bool = false
 
+    /// 認識できた行数。表示の目安に使う。
+    var lineCount: Int = 0
+
     /// コピー・保存の完了フィードバック（CPY-03）。
     var feedback: String?
 
     /// ウィンドウを閉じる要求。
     var requestClose: (() -> Void)?
 
+    /// 現在の認識モード。変更すると即座に再認識する（6.3）。
+    var mode: RecognitionMode {
+        didSet {
+            guard mode != oldValue else { return }
+            // 直前に使ったモードを次回の既定として記憶する（6.3）。
+            Settings.shared.recognitionMode = mode
+            recognize()
+        }
+    }
+
+    /// 実行中の認識タスク。モード切替時に古い結果で上書きされないよう管理する。
+    private var recognitionTask: Task<Void, Never>?
+
     init(image: CGImage) {
         self.image = image
+        self.mode = Settings.shared.recognitionMode
+    }
+
+    // MARK: - OCR
+
+    /// OCR を実行する（OCR-01: ボタンを押させず自動実行）。
+    ///
+    /// 画像プレビューは OCR 完了を待たず先に表示されている（4.3）。
+    func recognize() {
+        // 前の認識が走っていれば捨てる（モードを素早く切り替えた場合）。
+        recognitionTask?.cancel()
+
+        isRecognizing = true
+        hasNoText = false
+
+        let image = image
+        let mode = mode
+        recognitionTask = Task { @MainActor in
+            do {
+                // await によりメインスレッドを離れて実行される。
+                let result = try await TextRecognizer.recognize(image: image, mode: mode)
+                // 途中でモードが変わっていたら結果を破棄する。
+                guard !Task.isCancelled, self.mode == mode else { return }
+                self.text = result.text
+                self.lineCount = result.lineCount
+                self.hasNoText = result.lineCount == 0
+                self.isRecognizing = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.text = ""
+                self.lineCount = 0
+                self.hasNoText = true
+                self.isRecognizing = false
+            }
+        }
     }
 
     /// 画像のポイント寸法。1x 環境ではピクセル数と一致する。
@@ -114,6 +165,12 @@ final class ResultViewModel {
     }
 
     // MARK: - 補助
+
+    /// ウィンドウを閉じるときに呼ぶ。走っている認識を止める。
+    func cancelRecognition() {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+    }
 
     private func pngData() -> Data? {
         NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])

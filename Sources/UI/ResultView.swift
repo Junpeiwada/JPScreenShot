@@ -62,6 +62,44 @@ struct ResultView: View {
     // MARK: - テキスト
 
     private var textPane: some View {
+        VStack(spacing: 0) {
+            modeBar
+            Divider()
+            textContent
+        }
+        .frame(minHeight: 80, idealHeight: 180)
+        .background(.background)
+    }
+
+    /// 認識モードの切替（6.3）。切り替えると即座に再認識される。
+    private var modeBar: some View {
+        HStack(spacing: 8) {
+            Picker("認識モード", selection: $model.mode) {
+                ForEach(RecognitionMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+
+            if model.isRecognizing {
+                ProgressView().controlSize(.small)
+            }
+
+            Spacer()
+
+            if !model.isRecognizing, model.lineCount > 0 {
+                Text("\(model.lineCount) 行")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var textContent: some View {
         ZStack(alignment: .topLeading) {
             if model.isRecognizing {
                 // OCR 処理中はスピナー（4.3）。画像は待たずに先に出ている。
@@ -84,8 +122,6 @@ struct ResultView: View {
                     .padding(4)
             }
         }
-        .frame(minHeight: 80, idealHeight: 180)
-        .background(.background)
     }
 
     // MARK: - ボタン
