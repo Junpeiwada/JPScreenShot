@@ -8,6 +8,22 @@ dd/
 *.xcuserstate
 xcuserdata/
 
+# SwiftPM のユーザー固有データ（Package.resolved は依存を固定するため版管理する）
+.swiftpm/
+
+# CI のリリース成果物（Tools/release.sh やローカル検証で生成される）
+dist/
+pages/
+sparkle-tools/
+sparkle.tar.xz
+
+# Sparkle の秘密鍵（generate_keys -x で書き出したもの。絶対にコミットしない）
+sparkle_priv*.key
+sparkle_private_key*.txt
+
+# Node（package.json は VSCode の NPM SCRIPTS 用。依存はない）
+node_modules/
+
 # macOS
 .DS_Store
 

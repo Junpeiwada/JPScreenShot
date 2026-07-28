@@ -1,0 +1,13 @@
+{
+  "name": "jpscreenshot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "開発補助スクリプト用の package.json（アプリ本体は Swift/Xcode。依存なし）。VSCode の NPM SCRIPTS パネルからリリースやビルドをクリック実行するために置いている。",
+  "scripts": {
+    "release": "bash Tools/release.sh",
+    "generate": "xcodegen generate",
+    "build": "xcodegen generate && xcodebuild -project JPScreenShot.xcodeproj -scheme JPScreenShot -configuration Debug -derivedDataPath dd -clonedSourcePackagesDirPath dd/SourcePackages build",
+    "test": "xcodegen generate && xcodebuild -project JPScreenShot.xcodeproj -scheme JPScreenShot -configuration Debug -derivedDataPath dd -clonedSourcePackagesDirPath dd/SourcePackages test",
+    "run": "open dd/Build/Products/Debug/JPScreenShot.app"
+  }
+}

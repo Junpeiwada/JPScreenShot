@@ -19,6 +19,14 @@ xcodebuild ... test                  # テストは Tests/（純粋関数のみ�
 
 `-clonedSourcePackagesDirPath` は Sparkle（SwiftPM 依存）の取得先を `dd/` に閉じ込めるため。
 
+同じことを [package.json](package.json) の npm スクリプトからも実行できる（VSCode の NPM SCRIPTS パネル用。npm 依存はない）。
+
+```sh
+npm run build     # generate + Debug ビルド
+npm run test      # generate + テスト
+npm run release   # リリース発火（Tools/release.sh）
+```
+
 ### Info.plist も生成物だが版管理している
 
 Sparkle の `SUFeedURL` / `SUPublicEDKey` は `INFOPLIST_KEY_*` では注入できないため、実 `Info.plist` を XcodeGen に生成させている。**`JPScreenShot-Info.plist` を直接編集しても `xcodegen generate` で消える。** 設定変更は `project.yml` 側で行い、再生成して両方コミットする。
