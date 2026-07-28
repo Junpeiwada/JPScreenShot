@@ -19,8 +19,13 @@ final class Settings {
     }
 
     private init() {
-        // CPY-04: 既定は「閉じる」。1 アクションで完結させるため。
-        defaults.register(defaults: [Key.closeAfterCopy: true])
+        // CPY-04 の既定を「閉じない」に変更した（ユーザー要求）。
+        //
+        // 仕様 CPY-04 は「既定は閉じる（1 アクションで完結させるため）」と
+        // していたが、実際に使うと勝手に閉じられる方が邪魔だった。
+        // 画像とテキストの両方をコピーしたい、コピーしてから内容を確認したい、
+        // といった操作が閉じられると成立しない。閉じるのはユーザーに任せる。
+        defaults.register(defaults: [Key.closeAfterCopy: false])
     }
 
     /// 直前に使った認識モード。既定は日本語（6.3）。

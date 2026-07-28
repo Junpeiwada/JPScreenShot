@@ -192,7 +192,11 @@ final class ResultViewModel {
         }
     }
 
-    /// CPY-04: コピー後に閉じるかは環境設定（既定は閉じる）。
+    /// CPY-04: コピー後に閉じるかは環境設定（既定は**閉じない**）。
+    ///
+    /// 閉じるのはユーザーの操作に任せる方針。画像とテキストの両方を
+    /// コピーしたい、コピー後に内容を見返したい、といった使い方が
+    /// 勝手に閉じられると成立しないため。
     private func closeIfNeeded() {
         guard Settings.shared.closeAfterCopy else { return }
         // フィードバックが一瞬見えるように少し待つ。
