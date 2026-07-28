@@ -1,0 +1,122 @@
+import AppKit
+
+// 範囲選択の描画を担うビュー（要求 4.2）。
+//
+// - 全体を暗いオーバーレイで覆う
+// - 選択範囲の内側は暗転を解除して元の画面を見せる
+// - 選択範囲の寸法（幅 × 高さ px）をカーソル近傍に表示する
+// - カーソルは十字（レティクル）
+final class OverlayView: NSView {
+
+    /// 選択中の矩形（このビューのローカル座標）。nil なら未選択。
+    var selectionRect: CGRect? {
+        didSet {
+            guard selectionRect != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
+    /// このビューが載っているスクリーンの倍率。寸法をピクセルで出すのに使う。
+    /// 非 Retina 環境もあるため既定は 1.0（等倍）とし、嘘の寸法を出さない。
+    var backingScale: CGFloat = 1.0
+
+    /// マウス操作の通知。座標はすべて AppKit のグローバル座標で渡す。
+    ///
+    /// イベントをローカルモニタではなくビューで受けるのは、モニタが
+    /// 「自アプリがアクティブ」を前提とするため起動直後のクリックを
+    /// 取り逃す危険があるため。ドラッグは最初に mouseDown したビューが
+    /// 掴み続けるので、グローバル座標に直せば画面をまたいでも分断しない。
+    var onMouseDown: ((CGPoint) -> Void)?
+    var onMouseDragged: ((CGPoint) -> Void)?
+    var onMouseUp: ((CGPoint) -> Void)?
+
+    override var isOpaque: Bool { false }
+
+    // MARK: - マウスイベント
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?(NSEvent.mouseLocation)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        onMouseDragged?(NSEvent.mouseLocation)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onMouseUp?(NSEvent.mouseLocation)
+    }
+
+    // MARK: - カーソル
+
+    override func resetCursorRects() {
+        // レティクル（十字）カーソル。要求 4.2。
+        addCursorRect(bounds, cursor: .crosshair)
+    }
+
+    // MARK: - 描画
+
+    override func draw(_ dirtyRect: CGRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        let dimColor = NSColor.black.withAlphaComponent(0.35)
+
+        guard let selection = selectionRect, selection.width > 0, selection.height > 0 else {
+            // 未選択時は全面を暗転。
+            context.setFillColor(dimColor.cgColor)
+            context.fill(bounds)
+            return
+        }
+
+        // 選択範囲の外側だけを暗転させる（内側は元の画面を見せる）。
+        context.setFillColor(dimColor.cgColor)
+        context.fill(bounds)
+        context.setBlendMode(.destinationOut)
+        context.fill(selection)
+        context.setBlendMode(.normal)
+
+        // 選択範囲の枠線。
+        context.setStrokeColor(NSColor.white.cgColor)
+        context.setLineWidth(1.0)
+        context.stroke(selection.insetBy(dx: 0.5, dy: 0.5))
+
+        drawDimensionLabel(for: selection, in: context)
+    }
+
+    /// 寸法（幅 × 高さ px）をカーソル近傍に描く。
+    private func drawDimensionLabel(for selection: CGRect, in context: CGContext) {
+        // ポイント → ピクセルに換算して表示する。Retina では実解像度が
+        // ポイントの backingScale 倍になるため、撮れる画像の実寸を出す。
+        let pixelWidth = Int((selection.width * backingScale).rounded())
+        let pixelHeight = Int((selection.height * backingScale).rounded())
+        let text = "\(pixelWidth) × \(pixelHeight)"
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.white,
+        ]
+        let string = NSAttributedString(string: text, attributes: attributes)
+        let textSize = string.size()
+
+        let padding: CGFloat = 6
+        let boxSize = CGSize(width: textSize.width + padding * 2, height: textSize.height + padding)
+
+        // 既定では選択範囲の下に置き、画面外に出るなら上に逃がす。
+        var origin = CGPoint(
+            x: selection.midX - boxSize.width / 2,
+            y: selection.minY - boxSize.height - 8
+        )
+        if origin.y < bounds.minY {
+            origin.y = selection.maxY + 8
+        }
+        origin.x = max(bounds.minX + 4, min(origin.x, bounds.maxX - boxSize.width - 4))
+
+        let box = CGRect(origin: origin, size: boxSize)
+
+        context.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
+        let path = CGPath(roundedRect: box, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        context.addPath(path)
+        context.fillPath()
+
+        string.draw(at: CGPoint(x: box.minX + padding, y: box.minY + padding / 2))
+    }
+}
