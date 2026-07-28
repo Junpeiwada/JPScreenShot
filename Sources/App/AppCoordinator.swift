@@ -21,6 +21,8 @@ final class AppCoordinator {
     private var preloadTask: Task<Void, Never>?
     /// 結果ウィンドウ。閉じたら nil にして画像を解放する。
     private var resultWindow: ResultWindow?
+    /// 環境設定ウィンドウ。開いている間だけ保持する。
+    private var settingsWindow: SettingsWindow?
 
     init() {
         menuBar.onCapture = { [weak self] in
@@ -139,23 +141,34 @@ final class AppCoordinator {
     // MARK: - その他のメニュー項目
 
     private func openSettings() {
-        // 段階 7 で SettingsView に置き換える。
-        let alert = NSAlert()
-        alert.messageText = "環境設定は未実装です"
-        alert.informativeText = "段階 7 で実装します。"
-        alert.alertStyle = .informational
-        alert.runModal()
+        let window = settingsWindow ?? SettingsWindow()
+        settingsWindow = window
+        window.onClose = { [weak self] in
+            self?.settingsWindow = nil
+        }
+        window.show()
     }
 
     private func showAbout() {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "1"
+
         let alert = NSAlert()
-        alert.messageText = "JPScreenShot \(version)"
+        alert.messageText = "JPScreenShot \(version) (\(build))"
         alert.informativeText = """
             画面の範囲をキャプチャし、画像と OCR テキストの
             どちらでもコピーできるようにするアプリです。
 
-            OCR はオンデバイスで処理され、画像は外部に送信されません。
+            使い方:
+            ・メニューバーのアイコンをクリックすると範囲選択が始まります
+            ・右クリックでメニュー（認識モードの切替・環境設定）
+            ・Esc で選択をキャンセルできます
+
+            プライバシー:
+            OCR は Vision framework によるオンデバイス処理です。
+            画像もテキストも外部に送信しません。キャプチャ画像は
+            「保存」を押したときだけディスクに書き込まれます。
             """
         alert.alertStyle = .informational
         alert.runModal()
