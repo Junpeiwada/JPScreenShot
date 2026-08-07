@@ -26,6 +26,12 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.delegate = self
+        // 常に最前面に置く。
+        //
+        // LSUIElement アプリなので Dock アイコンが無く、⌘Tab の切り替え
+        // 対象にもならない。いったん他アプリのウィンドウの下に回り込むと
+        // 前面に戻す手段が事実上無くなるため、最初から沈まないようにする。
+        window.level = .floating
         window.setContentSize(Self.initialContentSize(for: image))
         window.center()
 

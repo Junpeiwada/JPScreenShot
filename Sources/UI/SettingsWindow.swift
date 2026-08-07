@@ -27,6 +27,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.delegate = self
+        // 結果ウィンドウ（.floating）と同じレベルに揃える。
+        // .normal のままだと、結果ウィンドウを開いた状態で環境設定を開いても
+        // レベルが低いぶん背面に描画され、重なった部分が見えなくなる。
+        // 同レベル同士なら通常のキーウィンドウ順序で前後する。
+        window.level = .floating
         window.center()
         self.window = window
 

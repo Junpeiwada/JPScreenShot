@@ -173,7 +173,11 @@ final class AppCoordinator {
 
     // MARK: - その他のメニュー項目
 
-    private func openSettings() {
+    /// 環境設定を開く。
+    ///
+    /// ステータスメニューだけでなく、メインメニューの ⌘, からも呼ばれるため
+    /// private にはできない（AppDelegate 経由で到達する）。
+    func openSettings() {
         let window = settingsWindow ?? SettingsWindow()
         settingsWindow = window
         window.onClose = { [weak self] in
