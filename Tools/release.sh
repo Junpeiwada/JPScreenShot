@@ -25,6 +25,24 @@ PROJECT_YML="project.yml"
 INFO_PLIST="JPScreenShot-Info.plist"
 ASSUME_YES=0
 
+# project.yml から現在の MARKETING_VERSION を取り出す。取れなければ空を返す。
+#
+# ★ grep を使わないこと。このスクリプトは `set -euo pipefail` なので、
+#   grep が 1 行も拾えないと終了コード 1 → コマンド置換の代入が
+#   set -e に捕まり、**何のメッセージも出さずにスクリプトごと死ぬ**。
+#   sed -n の p は該当が無くても終了コード 0 なので安全に空を返せる。
+#
+# ★ 引用符の有無を問わず値だけを取ること。`MARKETING_VERSION: 0.1.2` のように
+#   引用符無しで書かれた場合、引用符前提の抽出は「行全体」を返してしまい、
+#   下の重複チェックが永久に偽になって上げ忘れ検出が黙って無効化される。
+#
+# ★ `\s` は GNU 拡張で BSD（macOS）の sed/grep では使えない。[[:space:]] を使う。
+current_marketing_version() {
+  [ -f "${PROJECT_YML}" ] || return 0
+  sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' \
+    "${PROJECT_YML}" | head -1
+}
+
 # --- 引数パース ---
 VERSION=""
 for arg in "$@"; do
@@ -43,6 +61,24 @@ done
 # 場合など引数を渡せないケース向け）。端末でなければエラーにする。
 if [ -z "${VERSION}" ]; then
   if [ -t 0 ]; then
+    # 既に出したバージョンを尋ねる前に見せる。番号を思い出せずに
+    # リリース済みの値を入力してしまうのを防ぐ。
+    # この時点では project.yml の存在チェックをまだ通っていないが、
+    # current_marketing_version がファイルの有無を見るので止まらない。
+    CURRENT_HINT="$(current_marketing_version)"
+    if [ -n "${CURRENT_HINT}" ]; then
+      echo "現在のバージョン: ${CURRENT_HINT}"
+    fi
+
+    EXISTING="$(git tag -l 'v*' --sort=-v:refname 2>/dev/null | head -10)"
+    if [ -n "${EXISTING}" ]; then
+      echo "リリース済みのバージョン（新しい順）:"
+      printf '%s\n' "${EXISTING}" | sed 's/^/  /'
+    else
+      echo "リリース済みのバージョンはまだありません。"
+    fi
+    echo ""
+
     printf "リリースするバージョンを入力してください（例: 1.2.0）: "
     read -r VERSION
   fi
@@ -65,6 +101,70 @@ if [ ! -f "${PROJECT_YML}" ]; then
   exit 1
 fi
 
+CURRENT="$(current_marketing_version)"
+if [ -z "${CURRENT}" ]; then
+  # 抽出できないのは書式が変わった等の異常。黙って進むと下の重複チェックが
+  # 素通りし、更新用の sed も空振りして「nothing to commit」で落ちる。
+  echo "エラー: ${PROJECT_YML} から MARKETING_VERSION を読み取れませんでした。" >&2
+  echo "  書式が変わっていないか確認してください（期待: MARKETING_VERSION: \"X.Y.Z\"）。" >&2
+  exit 1
+fi
+
+# --- バージョンの重複チェック ---
+#
+# 「既に出したバージョンをもう一度指定してしまった」を、他のどのチェックよりも
+# 先に、具体的な理由を添えて弾く。ここを後ろに置くと、ワーキングツリーが
+# 汚れている等の別のエラーが先に出てしまい、本当の原因が分からなくなる。
+#
+# 重複を検出する観点は 3 つ。どれか 1 つでも当たればリリース済みとみなす:
+#   - project.yml が既にそのバージョン（＝上げ忘れ。sed が空振りしてコミットが
+#     「nothing to commit」で落ちるが、その時点では理由が分からない）
+#   - ローカルにタグがある
+#   - リモートにタグがある（ローカルのタグを消して再実行した場合に効く）
+DUPLICATE=0
+
+if [ "${CURRENT}" = "${VERSION}" ]; then
+  echo "エラー: project.yml の MARKETING_VERSION は既に ${VERSION} です。" >&2
+  DUPLICATE=1
+fi
+
+if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+  echo "エラー: タグ ${TAG} は既にローカルに存在します。" >&2
+  DUPLICATE=1
+fi
+
+# リモートも見る。ローカルのタグだけ削除して再実行すると、ローカルの検査だけでは
+# すり抜けて push で初めて失敗する。ネットワークが無い場合は検査を諦めて続行する
+# （ここで止めるとオフラインでの作業が一切できなくなるため）。
+#
+# ★ 参照名を ls-remote に直接渡し、こちらでパターンマッチしない。
+#   出力を grep すると TAG に含まれるドットが「任意の 1 文字」として効き、
+#   v0X1X2 のような別のタグを v0.1.2 と誤検出する。
+#
+# ★ stderr は捨てずに見せる。失敗理由はオフラインとは限らず（認証失敗、
+#   origin 未設定、リポジトリ削除など）、「ネットワーク未接続？」とだけ
+#   出すと原因の切り分けを誤らせる。
+if REMOTE_TAG_REF="$(git ls-remote --tags origin "refs/tags/${TAG}" 2>&1)"; then
+  if [ -n "${REMOTE_TAG_REF}" ]; then
+    echo "エラー: タグ ${TAG} は既にリモートに存在します（リリース済み）。" >&2
+    DUPLICATE=1
+  fi
+else
+  echo "警告: リモートのタグを確認できませんでした。重複の検査を省略します。理由:" >&2
+  printf '%s\n' "${REMOTE_TAG_REF}" | sed 's/^/  /' >&2
+fi
+
+if [ "${DUPLICATE}" -ne 0 ]; then
+  echo "" >&2
+  echo "${VERSION} は既にリリース済みか、リリースの準備が済んでいます。" >&2
+  echo "新しいバージョン番号を指定してください。既存のリリース:" >&2
+  git tag -l 'v*' --sort=-v:refname | head -5 | sed 's/^/  /' >&2
+  echo "" >&2
+  echo "同じバージョンでリリースをやり直す場合は、先にタグを削除してください:" >&2
+  echo "  git tag -d ${TAG} && git push origin :refs/tags/${TAG}" >&2
+  exit 1
+fi
+
 BRANCH="$(git branch --show-current)"
 if [ "${BRANCH}" != "main" ]; then
   echo "警告: 現在のブランチは '${BRANCH}' です（通常は main でリリースします）。" >&2
@@ -77,13 +177,6 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-# タグの二重発行を防ぐ。
-if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-  echo "エラー: タグ ${TAG} は既に存在します。" >&2
-  exit 1
-fi
-
-CURRENT="$(grep -E '^\s*MARKETING_VERSION:' "${PROJECT_YML}" | head -1 | sed -E 's/.*"([^"]*)".*/\1/')"
 echo "現在のバージョン: ${CURRENT:-不明}"
 echo "新しいバージョン: ${VERSION}（タグ ${TAG}）"
 

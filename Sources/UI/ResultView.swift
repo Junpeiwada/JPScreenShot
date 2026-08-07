@@ -50,12 +50,28 @@ struct ResultView: View {
 
     @ViewBuilder
     private func imageContent(in available: CGSize) -> some View {
-        let image = Image(decorative: model.image, scale: 1.0)
+        // scale にはキャプチャ時の倍率を渡す。
+        //
+        // ここを 1.0 に固定すると「画像の 1 ピクセル = 1 ポイント」と
+        // 解釈されるため、Retina（2x）で撮った画像が画面の 2 倍の
+        // 大きさで表示されてしまう。実際の倍率を伝えることで、撮った
+        // 範囲が画面上で占めていたのと同じ大きさになる。
+        let image = Image(decorative: model.image, scale: model.imageScale)
 
         if model.actualSize {
-            // 等倍（1:1）。リサンプリングを一切通さないので、画面から
-            // 取得したピクセルがそのまま表示される。
+            // 等倍 = 撮影時に画面で見えていたのと同じ大きさ。
             // 収まらない場合はスクロールで見る。
+            //
+            // 画素が間引かれないのは「撮影元と表示先の倍率が同じとき」だけ
+            // （2x で撮って 2x に出す場合、1 ポイントに 2 ピクセルが描かれる）。
+            // 混在 DPI 環境で 2x のディスプレイで撮った結果ウィンドウを 1x の
+            // ディスプレイへ動かすと、2 ピクセルが 1 ピクセルに落ちるため
+            // ダウンサンプリングが起きる。
+            //
+            // これは「画面と同じ大きさで出す」を選んだ以上避けられない。
+            // ピクセル 1:1 を優先すると、今度は 2x で撮った画像が 1x 画面で
+            // 2 倍の大きさに引き伸ばされて表示されてしまう（この修正で直した
+            // 元の不具合そのもの）。表示サイズの正しさを優先する。
             image
         } else {
             let size = fittedSize(in: available)
@@ -67,8 +83,11 @@ struct ResultView: View {
     }
 
     /// アスペクト比を保って収める。等倍より大きく拡大はしない（4.3）。
+    ///
+    /// 基準はポイント寸法。ピクセル寸法で比べると Retina では常に
+    /// 「画面より大きい」と判定され、収まる画像まで縮小されてしまう。
     private func fittedSize(in available: CGSize) -> CGSize {
-        let native = model.pixelSize
+        let native = model.pointSize
         guard native.width > 0, native.height > 0 else { return .zero }
         guard available.width > 0, available.height > 0 else { return native }
 
@@ -179,13 +198,13 @@ struct ResultView: View {
 
             Spacer()
 
-            // 等倍（1:1）とウィンドウに合わせる表示の切り替え。
-            // 1x ディスプレイでは縮小するとリサンプリングでぼやけるため
-            // 既定は等倍。
+            // 等倍（画面と同じ大きさ）とウィンドウに合わせる表示の切り替え。
+            // 縮小するとリサンプリングでぼやけるため既定は等倍。
             Toggle("等倍", isOn: $model.actualSize)
                 .toggleStyle(.checkbox)
-                .help("画面のピクセルをそのまま表示します。オフにするとウィンドウに合わせて縮小します。")
+                .help("撮影時に画面で見えていたのと同じ大きさで表示します。オフにするとウィンドウに合わせて縮小します。")
 
+            // 寸法は保存・コピーされる実データに合わせてピクセルで出す。
             Text("\(Int(model.pixelSize.width)) × \(Int(model.pixelSize.height))")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)

@@ -20,6 +20,38 @@ enum CaptureError: LocalizedError {
     }
 }
 
+/// キャプチャ結果。画像とその倍率を組にして持つ。
+///
+/// `CGImage` は自身が何倍で撮られたかを持たない。CAP-02 で Retina では
+/// ポイントの `backingScaleFactor` 倍のピクセル数を要求しているため、
+/// ピクセル数だけを表示側に渡すと「画面で見えていた大きさ」が復元できず、
+/// 2x 環境で 2 倍の大きさに表示されてしまう。倍率を一緒に運ぶ。
+struct CaptureResult {
+    /// 撮影した画像（ピクセル）。
+    let image: CGImage
+    /// 1 ポイントあたりのピクセル数（Retina なら 2.0）。
+    let scale: CGFloat
+
+    /// 画面上で見えていた大きさ（ポイント）。
+    ///
+    /// 倍率が異常値（0 以下）なら等倍とみなしてピクセル寸法を返す。
+    /// ここを素通しにすると 0 除算で無限大や負の寸法が生まれ、そのまま
+    /// `NSWindow.setContentSize` やレイアウトへ渡ってしまう。
+    /// 寸法計算はすべてここを通るので、ガードはこの 1 か所で足りる。
+    var pointSize: CGSize {
+        guard scale > 0 else { return pixelSize }
+        return CGSize(
+            width: CGFloat(image.width) / scale,
+            height: CGFloat(image.height) / scale
+        )
+    }
+
+    /// 画像のピクセル寸法。保存・コピーされる実データのサイズ。
+    var pixelSize: CGSize {
+        CGSize(width: CGFloat(image.width), height: CGFloat(image.height))
+    }
+}
+
 /// キャプチャの対象。範囲選択とウィンドウ選択を 1 つの結果型で扱う。
 ///
 /// SelectionCoordinator の完了ハンドラが「矩形 or ウィンドウ or キャンセル」を
@@ -49,11 +81,11 @@ enum ScreenCaptureService {
     /// - Parameters:
     ///   - appKitRect: AppKit グローバル座標（左下原点）の矩形。
     ///   - content: 先読みしておいた共有可能コンテンツ。省略時はここで取得する。
-    /// - Returns: Retina 解像度を維持した CGImage（CAP-02）。
+    /// - Returns: Retina 解像度を維持した画像と、その倍率（CAP-02）。
     static func capture(
         appKitRect: CGRect,
         content preloaded: SCShareableContent? = nil
-    ) async throws -> CGImage {
+    ) async throws -> CaptureResult {
         guard let screen = ScreenGeometry.screen(containing: appKitRect),
               let displayID = ScreenGeometry.displayID(of: screen)
         else {
@@ -124,10 +156,11 @@ enum ScreenCaptureService {
         config.scalesToFit = false
 
         do {
-            return try await SCScreenshotManager.captureImage(
+            let image = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config
             )
+            return CaptureResult(image: image, scale: scale)
         } catch {
             throw CaptureError.captureFailed(error)
         }
@@ -137,11 +170,11 @@ enum ScreenCaptureService {
     /// - Parameters:
     ///   - window: 対象ウィンドウ。
     ///   - includeShadow: ドロップシャドウを付けるか（CAP-07、環境設定で選べる）。
-    /// - Returns: Retina 解像度を維持した CGImage。
+    /// - Returns: Retina 解像度を維持した画像と、その倍率。
     static func capture(
         window: SCWindow,
         includeShadow: Bool
-    ) async throws -> CGImage {
+    ) async throws -> CaptureResult {
         // desktopIndependentWindow フィルタは対象ウィンドウだけを切り出す。
         // 背後のウィンドウや壁紙は写らず、重なりも無視できる（sourceRect 方式では
         // 手前のウィンドウが写り込んでしまう）。
@@ -182,7 +215,13 @@ enum ScreenCaptureService {
         }
 
         // CAP-07: 影は等倍で撮った画像の上に合成する。
-        guard includeShadow else { return image }
-        return ShadowCompositor.addShadow(to: image, scale: scale)
+        //
+        // 影の余白もポイント基準の値に scale を掛けて描くので、合成後も
+        // 「1 ポイント = scale ピクセル」の関係は保たれる。倍率は変わらない。
+        guard includeShadow else {
+            return CaptureResult(image: image, scale: scale)
+        }
+        let shadowed = ShadowCompositor.addShadow(to: image, scale: scale)
+        return CaptureResult(image: shadowed, scale: scale)
     }
 }

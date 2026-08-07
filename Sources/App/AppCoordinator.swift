@@ -108,13 +108,13 @@ final class AppCoordinator {
         Task { @MainActor in
             defer { self.discardPreload() }
             do {
-                let image: CGImage
+                let capture: CaptureResult
                 switch target {
                 case .region(let rect):
                     // 先読みの完了を待つ。結果は preloadedContent に入る。
                     // 失敗していた場合は nil のまま capture 側で取り直す。
                     await self.preloadTask?.value
-                    image = try await ScreenCaptureService.capture(
+                    capture = try await ScreenCaptureService.capture(
                         appKitRect: rect,
                         content: self.preloadedContent
                     )
@@ -122,12 +122,12 @@ final class AppCoordinator {
                     // CAP-06: ウィンドウ単位のキャプチャ。フィルタが対象を
                     // 直接指すので content の待ち合わせは不要
                     // （そもそも content がなければ window は選ばれない）。
-                    image = try await ScreenCaptureService.capture(
+                    capture = try await ScreenCaptureService.capture(
                         window: window,
                         includeShadow: self.settings.includeWindowShadow
                     )
                 }
-                showResult(image)
+                showResult(capture)
             } catch {
                 presentError(error)
             }
@@ -140,7 +140,7 @@ final class AppCoordinator {
     /// プレビューはウィンドウに合わせて画像を拡大するため 1x の
     /// スクリーンショットがぼやけて見え、要求 4.3 の「等倍より大きく
     /// 拡大はしない」に反する。自前のウィンドウなら等倍で出せる。
-    private func showResult(_ image: CGImage) {
+    private func showResult(_ capture: CaptureResult) {
         // 前のウィンドウを必ず閉じてから開く。
         //
         // NSWindow.delegate は weak なので、resultWindow を上書きすると
@@ -159,7 +159,7 @@ final class AppCoordinator {
             guard let self, self.resultWindow === window else { return }
             self.resultWindow = nil
         }
-        window.show(image: image)
+        window.show(capture: capture)
     }
 
     private func presentError(_ error: Error) {

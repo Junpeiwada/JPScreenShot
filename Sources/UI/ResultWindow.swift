@@ -14,8 +14,8 @@ final class ResultWindow: NSObject, NSWindowDelegate {
     /// ウィンドウが閉じられたときの通知（保持を解除してメモリを解放するため）。
     var onClose: (() -> Void)?
 
-    func show(image: CGImage) {
-        let model = ResultViewModel(image: image)
+    func show(capture: CaptureResult) {
+        let model = ResultViewModel(capture: capture)
         self.model = model
 
         let view = ResultView(model: model)
@@ -32,7 +32,7 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         // 対象にもならない。いったん他アプリのウィンドウの下に回り込むと
         // 前面に戻す手段が事実上無くなるため、最初から沈まないようにする。
         window.level = .floating
-        window.setContentSize(Self.initialContentSize(for: image))
+        window.setContentSize(Self.initialContentSize(for: capture))
         window.center()
 
         model.requestClose = { [weak self] in
@@ -55,20 +55,27 @@ final class ResultWindow: NSObject, NSWindowDelegate {
     /// 画像が等倍で収まるようにウィンドウを開く。画面より大きい場合は
     /// 画面いっぱいまで広げる（画像自体は等倍のままスクロールで見せる。
     /// 縮小するとリサンプリングでぼやけるため）。
-    private static func initialContentSize(for image: CGImage) -> NSSize {
-        let imageWidth = CGFloat(image.width)
-        let imageHeight = CGFloat(image.height)
+    ///
+    /// ★ここは必ずポイントで計算する。`NSWindow.setContentSize` も
+    /// `NSScreen.visibleFrame` もポイント系なので、ピクセル数を渡すと
+    /// Retina では 2 倍の大きさを要求してしまい、たいていの画像で
+    /// 画面幅に張り付いた不自然に大きいウィンドウになる。
+    private static func initialContentSize(for capture: CaptureResult) -> NSSize {
+        let pointSize = capture.pointSize
 
         // テキスト欄とボタンバーの分を足す。
         let chromeHeight: CGFloat = 240
+        // ウィンドウが出る画面の広さで頭打ちにする。撮影元の画面とは限らない
+        // （2x の画面で撮って 1x の画面にウィンドウが出ることがある）が、
+        // ポイントどうしの比較なので大小関係は正しく、上限として機能する。
         let visible = NSScreen.main?.visibleFrame.size
             ?? NSSize(width: 1280, height: 800)
 
-        // 以前は visible.width * 0.8 で上限を掛けていたため、幅 2048px を
-        // 超えるキャプチャが強制的に縮小されてぼやけていた。
+        // 以前は visible.width * 0.8 で上限を掛けていたため、幅の広い
+        // キャプチャが強制的に縮小されてぼやけていた。
         // 画面に収まる限りは等倍で見えるようにする。
-        let width = min(max(imageWidth, 480), visible.width)
-        let height = min(imageHeight + chromeHeight, visible.height)
+        let width = min(max(pointSize.width, 480), visible.width)
+        let height = min(pointSize.height + chromeHeight, visible.height)
         return NSSize(width: width, height: height)
     }
 

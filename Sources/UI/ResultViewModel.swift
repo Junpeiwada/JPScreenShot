@@ -8,8 +8,21 @@ import SwiftUI
 @Observable
 final class ResultViewModel {
 
-    /// キャプチャ画像。ウィンドウを閉じたら解放する（非機能要求・メモリ）。
-    let image: CGImage
+    /// キャプチャ結果（画像とその倍率）。
+    /// ウィンドウを閉じたら解放する（非機能要求・メモリ）。
+    ///
+    /// 寸法の計算は CaptureResult 側に一本化し、ここでは持ち回すだけにする。
+    /// 同じ計算を両方に書くと、ゼロ除算ガードの有無のような差が生まれる。
+    private let capture: CaptureResult
+
+    /// キャプチャ画像。
+    var image: CGImage { capture.image }
+
+    /// 画像の倍率（1 ポイントあたりのピクセル数。Retina なら 2.0）。
+    ///
+    /// 表示のときに `Image(decorative:scale:)` へ渡す。ここを 1.0 に
+    /// 決め打ちすると 2x で撮った画像が 2 倍の大きさで表示されてしまう。
+    var imageScale: CGFloat { capture.scale }
 
     /// OCR テキスト。編集可能（4.3）。段階 5 で認識結果を流し込む。
     var text: String = ""
@@ -26,10 +39,14 @@ final class ResultViewModel {
     /// コピー・保存の完了フィードバック（CPY-03）。
     var feedback: String?
 
-    /// 画像を等倍（1:1）で表示するか。
+    /// 画像を等倍（画面と同じ大きさ）で表示するか。
     ///
-    /// 既定は true。1x ディスプレイでは縮小すると必ずリサンプリングで
-    /// ぼやけるため、既定では等倍のまま出してスクロールで見せる。
+    /// ここでいう等倍は「撮った範囲が画面上で占めていたのと同じ大きさ」で
+    /// あり、ピクセル 1:1 ではない。Retina では画像のピクセル数は画面の
+    /// 2 倍あるので、ピクセル 1:1 で出すと 2 倍に引き伸ばされて見える。
+    ///
+    /// 既定は true。縮小するとリサンプリングでぼやけるため、既定では
+    /// 等倍のまま出して収まらない分はスクロールで見せる。
     /// false にするとウィンドウに合わせて縮小表示する。
     ///
     /// 選択は次回以降の既定として記憶する。
@@ -65,8 +82,8 @@ final class ResultViewModel {
     /// 判定すると、同じモードで再認識した場合に古い結果を弾けない。
     private var generation = 0
 
-    init(image: CGImage) {
-        self.image = image
+    init(capture: CaptureResult) {
+        self.capture = capture
         self.mode = Settings.shared.recognitionMode
     }
 
@@ -114,10 +131,17 @@ final class ResultViewModel {
         }
     }
 
-    /// 画像のポイント寸法。1x 環境ではピクセル数と一致する。
-    var pixelSize: CGSize {
-        CGSize(width: image.width, height: image.height)
-    }
+    /// 画像のピクセル寸法。保存・コピーされる実データのサイズ。
+    ///
+    /// 寸法ラベルにはこちらを出す（PNG を開いたときの数字と一致させるため）。
+    /// レイアウト計算に使ってはいけない。ポイントとは倍率の分ずれる。
+    var pixelSize: CGSize { capture.pixelSize }
+
+    /// 画面上で見えていた大きさ（ポイント）。
+    ///
+    /// ウィンドウの寸法計算や「等倍」表示はすべてこちらを基準にする。
+    /// これにより、撮った範囲が画面で占めていたのと同じ大きさで表示される。
+    var pointSize: CGSize { capture.pointSize }
 
     // MARK: - コピー
 
