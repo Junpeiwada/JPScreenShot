@@ -43,6 +43,41 @@ current_marketing_version() {
     "${PROJECT_YML}" | head -1
 }
 
+# 次に出すべきバージョンを提案する。現在の X.Y.Z の Z（パッチ）だけを +1 した値を返す。
+#
+# 元は project.yml の MARKETING_VERSION だが、タグの方が先に進んでいることがある
+# （コミットを戻した、yml の更新だけ取り消した等）。両方を見て「大きい方」を基準に
+# しないと、既にリリース済みの番号を提案してしまい重複チェックで弾かれる。
+#
+# ★ X.Y.Z 形式でないものは扱わない（空を返す）。無理に推測して誤った番号を
+#   既定値として提示するより、入力を促す方が安全。
+suggest_next_version() {
+  local base
+  base="$(current_marketing_version)"
+
+  # タグ側の最新（v を落とした X.Y.Z のみ）
+  local latest_tag
+  latest_tag="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
+    | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | head -1)"
+
+  # 大きい方を基準にする。sort -V は BSD/macOS でも使える。
+  if [ -n "${latest_tag}" ]; then
+    if [ -z "${base}" ]; then
+      base="${latest_tag}"
+    else
+      base="$(printf '%s\n%s\n' "${base}" "${latest_tag}" | sort -V | tail -1)"
+    fi
+  fi
+
+  [[ "${base}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+
+  local major minor patch
+  major="${base%%.*}"
+  patch="${base##*.}"
+  minor="${base#*.}"; minor="${minor%%.*}"
+  printf '%s.%s.%s\n' "${major}" "${minor}" "$((patch + 1))"
+}
+
 # --- 引数パース ---
 VERSION=""
 for arg in "$@"; do
@@ -79,8 +114,20 @@ if [ -z "${VERSION}" ]; then
     fi
     echo ""
 
-    printf "リリースするバージョンを入力してください（例: 1.2.0）: "
+    # パッチを +1 した値を既定値として提示する。Enter だけで採択できるようにし、
+    # 別の番号（マイナー/メジャー上げなど）を出したいときは打ち直せばよい。
+    SUGGESTED="$(suggest_next_version)"
+    if [ -n "${SUGGESTED}" ]; then
+      printf "リリースするバージョンを入力してください [%s]: " "${SUGGESTED}"
+    else
+      printf "リリースするバージョンを入力してください（例: 1.2.0）: "
+    fi
     read -r VERSION
+    # 空入力（Enter のみ）は提案値の採択とみなす。提案が作れなかった場合は
+    # 空のままにして、下の未指定チェックにエラーを出させる。
+    if [ -z "${VERSION}" ]; then
+      VERSION="${SUGGESTED}"
+    fi
   fi
 fi
 if [ -z "${VERSION}" ]; then
