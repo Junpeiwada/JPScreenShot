@@ -26,11 +26,18 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.delegate = self
-        // 常に最前面に置く。
+        // 撮影直後は確実に手前に出す。
         //
-        // LSUIElement アプリなので Dock アイコンが無く、⌘Tab の切り替え
-        // 対象にもならない。いったん他アプリのウィンドウの下に回り込むと
-        // 前面に戻す手段が事実上無くなるため、最初から沈まないようにする。
+        // ただし常時 .floating で固定はしない。以前は「LSUIElement なので
+        // 沈むと戻す手段が無い」ことを避けて固定していたが、他アプリでの
+        // 作業中も居座って邪魔だった。
+        //
+        // レベルの上げ下げは AppCoordinator がアプリのアクティブ状態に
+        // 連動させて setFloating(_:) で行う（環境設定ウィンドウと共通の規則）。
+        // ウィンドウ単位の becomeKey/resignKey で切り替えてはいけない。
+        // resignKey はアプリ内の別ウィンドウやモーダル（NSAlert・
+        // NSOpenPanel）が出ただけでも発火するため、アプリ内のダイアログを
+        // 開くたびに沈んでしまう。
         window.level = .floating
         window.setContentSize(Self.initialContentSize(for: capture))
         window.center()
@@ -86,6 +93,33 @@ final class ResultWindow: NSObject, NSWindowDelegate {
     /// メニューバーからモードが変更されたとき、開いているウィンドウにも反映する。
     func applyMode(_ mode: RecognitionMode) {
         model?.mode = mode
+    }
+
+    /// 最前面に貼り付けるかどうかを切り替える。
+    ///
+    /// アプリがアクティブな間だけ true。呼び出しは AppCoordinator が
+    /// アプリのアクティブ状態に合わせて行う。
+    func setFloating(_ floating: Bool) {
+        window?.level = floating ? .floating : .normal
+    }
+
+    /// 背面に沈んだウィンドウを前面に呼び戻す。
+    ///
+    /// LSUIElement アプリは Dock アイコンが無く ⌘Tab の対象にもならないため、
+    /// いったん他アプリの下に回り込むとユーザーが自力で戻せない。
+    /// ステータスメニューの「結果ウィンドウを表示」から呼ぶ。
+    func bringToFront() {
+        NSApp.activate(ignoringOtherApps: true)
+        // ミニマイズされている場合も戻す。
+        if window?.isMiniaturized == true {
+            window?.deminiaturize(nil)
+        }
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 結果ウィンドウが表示可能な状態にあるか（メニュー項目の有効・無効判定用）。
+    var canBringToFront: Bool {
+        window != nil
     }
 
     // MARK: - NSWindowDelegate

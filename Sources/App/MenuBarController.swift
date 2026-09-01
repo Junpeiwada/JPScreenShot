@@ -24,10 +24,18 @@ final class MenuBarController {
     var onSelectMode: ((RecognitionMode) -> Void)?
     /// 現在の認識モード（メニューのチェック表示に使う）
     var currentMode: (() -> RecognitionMode)?
+    /// 背面に回った結果ウィンドウを前面に呼び戻す
+    var onShowResultWindow: (() -> Void)?
+    /// 結果ウィンドウが開いているか（メニュー項目の有効・無効に使う）
+    var hasResultWindow: (() -> Bool)?
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         menu = NSMenu()
+        // 有効・無効は refreshResultWindowItem() で自分で決める。
+        // 既定の自動判定のままだと、target/action を持つ項目は表示直前に
+        // 強制的に有効へ戻されてしまう。
+        menu.autoenablesItems = false
 
         if let button = statusItem.button {
             button.image = Self.icon(for: .idle)
@@ -94,6 +102,7 @@ final class MenuBarController {
         defer { isShowingMenu = false }
 
         refreshModeChecks()
+        refreshResultWindowItem()
         // menu を代入したままだと左クリックでも開いてしまうため、
         // 表示する瞬間だけ差し込んですぐ外す。
         statusItem.menu = menu
@@ -102,6 +111,9 @@ final class MenuBarController {
     }
 
     // MARK: - メニュー構築
+
+    /// 「結果ウィンドウを表示」項目の識別用。有効・無効を更新するために引く。
+    private static let showResultWindowTag = 1
 
     private func buildMenu() {
         menu.removeAllItems()
@@ -113,6 +125,20 @@ final class MenuBarController {
         )
         capture.target = self
         menu.addItem(capture)
+
+        // 背面に回った結果ウィンドウを呼び戻す手段。
+        //
+        // LSUIElement アプリは Dock アイコンが無く ⌘Tab の対象にもならない。
+        // 結果ウィンドウはアプリが非アクティブになると .normal に落ちて他の
+        // アプリの下に隠れるため、この項目が唯一の復帰経路になる。
+        let showResult = NSMenuItem(
+            title: "結果ウィンドウを表示",
+            action: #selector(menuShowResultWindow),
+            keyEquivalent: ""
+        )
+        showResult.target = self
+        showResult.tag = Self.showResultWindowTag
+        menu.addItem(showResult)
 
         menu.addItem(.separator())
 
@@ -180,10 +206,20 @@ final class MenuBarController {
         }
     }
 
+    /// 結果ウィンドウが無いときは「結果ウィンドウを表示」を選べないようにする。
+    private func refreshResultWindowItem() {
+        guard let item = menu.item(withTag: Self.showResultWindowTag) else { return }
+        item.isEnabled = hasResultWindow?() ?? false
+    }
+
     // MARK: - メニュー項目のアクション
 
     @objc private func menuCapture() {
         onCapture?()
+    }
+
+    @objc private func menuShowResultWindow() {
+        onShowResultWindow?()
     }
 
     @objc private func menuSelectMode(_ sender: NSMenuItem) {

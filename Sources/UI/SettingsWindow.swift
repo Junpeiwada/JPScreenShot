@@ -27,10 +27,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.delegate = self
-        // 結果ウィンドウ（.floating）と同じレベルに揃える。
-        // .normal のままだと、結果ウィンドウを開いた状態で環境設定を開いても
-        // レベルが低いぶん背面に描画され、重なった部分が見えなくなる。
-        // 同レベル同士なら通常のキーウィンドウ順序で前後する。
+        // 結果ウィンドウと同じレベルに揃える。
+        // レベルが違うと、片方が常にもう片方の背面に描画されて重なった部分が
+        // 見えなくなる。同レベル同士なら通常のキーウィンドウ順序で前後する。
+        //
+        // 上げ下げは AppCoordinator がアプリのアクティブ状態に連動させて
+        // setFloating(_:) で行う。ここで .floating に固定してしまうと、
+        // 他アプリに切り替えても環境設定だけ最前面に居座り続ける。
         window.level = .floating
         window.center()
         self.window = window
@@ -41,6 +44,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     func close() {
         window?.close()
+    }
+
+    /// 最前面に貼り付けるかどうかを切り替える（ResultWindow と共通の規則）。
+    func setFloating(_ floating: Bool) {
+        window?.level = floating ? .floating : .normal
     }
 
     // MARK: - NSWindowDelegate

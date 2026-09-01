@@ -25,6 +25,12 @@ final class AppCoordinator {
     private var settingsWindow: SettingsWindow?
     /// アプリ内自動更新。生成時点で定期確認が動き出すため保持し続ける。
     private let updater = UpdaterController()
+    /// アプリのアクティブ状態の監視（ウィンドウレベルの連動用）。
+    ///
+    /// AppCoordinator はアプリの生存期間ずっと保持されるため解除はしない。
+    /// Swift 6 の nonisolated な deinit からは MainActor 隔離のこの配列に
+    /// 触れられないので、解除するなら別の作りが必要になる。
+    private var activationObservers: [NSObjectProtocol] = []
 
     init() {
         menuBar.onCapture = { [weak self] in
@@ -47,6 +53,57 @@ final class AppCoordinator {
         menuBar.onCheckForUpdates = { [weak self] in
             self?.updater.checkForUpdates()
         }
+        menuBar.onShowResultWindow = { [weak self] in
+            self?.resultWindow?.bringToFront()
+        }
+        menuBar.hasResultWindow = { [weak self] in
+            self?.resultWindow?.canBringToFront ?? false
+        }
+
+        observeActivation()
+    }
+
+    // MARK: - ウィンドウレベル
+
+    /// アプリのアクティブ状態にウィンドウレベルを連動させる。
+    ///
+    /// アクティブな間は .floating で手前に、他アプリへ移ったら .normal に
+    /// 落として普通に背面へ回れるようにする。LSUIElement アプリは Dock
+    /// アイコンが無いため、撮影直後に手前へ出せることが重要な一方、作業中
+    /// ずっと居座られると邪魔になる。その両立をここで一手に引き受ける。
+    ///
+    /// ウィンドウ側の becomeKey / resignKey では判定できない。resignKey は
+    /// アプリ内の別ウィンドウやモーダル（NSAlert・NSOpenPanel）が出ただけで
+    /// 発火するため、環境設定を開いたりエラーを表示するたびに沈んでしまう。
+    /// アプリ単位で見れば、そうした場面では isActive のまま変わらない。
+    private func observeActivation() {
+        let center = NotificationCenter.default
+        let names: [(Notification.Name, Bool)] = [
+            (NSApplication.didBecomeActiveNotification, true),
+            (NSApplication.didResignActiveNotification, false),
+        ]
+        for (name, floating) in names {
+            let observer = center.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.setWindowsFloating(floating)
+                }
+            }
+            activationObservers.append(observer)
+        }
+    }
+
+    /// 開いている全ウィンドウのレベルを揃える。
+    ///
+    /// 結果ウィンドウと環境設定ウィンドウは必ず同レベルに保つ。レベルが
+    /// 食い違うと、低いほうが常にもう一方の背面に描画されて操作できなくなる
+    /// （どちらも center() で開くため、まず確実に重なる）。
+    private func setWindowsFloating(_ floating: Bool) {
+        resultWindow?.setFloating(floating)
+        settingsWindow?.setFloating(floating)
     }
 
     // MARK: - キャプチャ
