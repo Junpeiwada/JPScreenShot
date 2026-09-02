@@ -5,6 +5,10 @@ import AppKit
 // 要求 4.1 の要点は「クリック＝キャプチャ開始」であること。NSStatusItem に
 // menu を代入すると左クリックでもメニューが開いてしまい、この要求を満たせない。
 // そのため menu は代入せず、クリック種別を自分で判定して振り分ける。
+//
+// アイコンのクリックとメニュー項目でコールバックを分けているのは、両者で
+// 「キャプチャを始めてよいか」の判断が違うため（CAP-08）。どう違うかは
+// 呼び出し側の AppCoordinator が決める。ここは種別を伝えるだけに留める。
 @MainActor
 final class MenuBarController {
     private let statusItem: NSStatusItem
@@ -12,8 +16,10 @@ final class MenuBarController {
     /// メニュー表示中か。performClick の再入を防ぐ。
     private var isShowingMenu = false
 
-    /// 左クリック時（範囲選択キャプチャの開始）
+    /// アイコンの左クリック時
     var onCapture: (() -> Void)?
+    /// メニューの「範囲を選択してキャプチャ」を選んだとき
+    var onCaptureFromMenu: (() -> Void)?
     /// 環境設定を開く
     var onOpenSettings: (() -> Void)?
     /// このアプリについて
@@ -215,7 +221,7 @@ final class MenuBarController {
     // MARK: - メニュー項目のアクション
 
     @objc private func menuCapture() {
-        onCapture?()
+        onCaptureFromMenu?()
     }
 
     @objc private func menuShowResultWindow() {

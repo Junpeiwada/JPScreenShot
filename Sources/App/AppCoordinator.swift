@@ -34,6 +34,16 @@ final class AppCoordinator {
 
     init() {
         menuBar.onCapture = { [weak self] in
+            guard let self else { return }
+            // CAP-08: 結果ウィンドウを見失っているときは、まず前面に戻すだけに
+            // する。撮った結果を見ながら他アプリを触ったあと、アイコンを押した
+            // 瞬間に次のキャプチャが始まって結果を見失うのを避けるため。
+            // 見えている状態（または閉じた後）でもう一度押せば撮影が始まる。
+            if self.resultWindow?.bringToFrontIfBackgrounded() == true { return }
+            self.beginCapture()
+        }
+        menuBar.onCaptureFromMenu = { [weak self] in
+            // メニューからの明示的な指示なので、ウィンドウの状態に関わらず撮る。
             self?.beginCapture()
         }
         menuBar.currentMode = { [weak self] in

@@ -122,6 +122,56 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         window != nil
     }
 
+    /// 見失っているなら前面に呼び戻し、呼び戻したことを返す（CAP-08）。
+    ///
+    /// メニューバーアイコンのクリックは通常キャプチャ開始だが（CAP-01）、
+    /// 結果ウィンドウを見失っているときだけは「まず前面に戻す」を優先する。
+    /// 見えているなら false を返し、呼び出し側はそのままキャプチャへ進む。
+    ///
+    /// この判定は「NSStatusBarButton のクリックでは NSApp がアクティブに
+    /// ならない」ことに依存している。NSStatusBarWindow はキーにならないため
+    /// NSApp.isActive はクリック直前の状態のまま読める。ここが崩れると
+    /// 「何度クリックしてもキャプチャが始まらない」詰み方をするので、
+    /// 挙動を変えるときは実機で往復を確認すること。
+    func bringToFrontIfBackgrounded() -> Bool {
+        guard let window else { return false }
+        guard Self.shouldBringToFront(
+            isVisible: window.isVisible,
+            isMiniaturized: window.isMiniaturized,
+            isAppActive: NSApp.isActive,
+            isOnActiveSpace: window.isOnActiveSpace
+        ) else { return false }
+
+        bringToFront()
+        return true
+    }
+
+    /// 前面化すべきかの判定。AppKit に触らない純粋関数にしてテストで固定する。
+    ///
+    /// 原則は「見えているなら前面化しない」。撮った結果を見ながら他アプリを
+    /// 操作したあと、アイコンを押した瞬間に次のキャプチャが始まって結果を
+    /// 見失うのを防ぐのが目的なので、それ以外では邪魔をしない。
+    static func shouldBringToFront(
+        isVisible: Bool,
+        isMiniaturized: Bool,
+        isAppActive: Bool,
+        isOnActiveSpace: Bool
+    ) -> Bool {
+        // 最小化されているなら Dock の中で完全に見えていないので必ず戻す。
+        // これから撮りたい画面を隠すこともない。
+        if isMiniaturized { return true }
+        // 非表示（⌘H で隠した / まだ出していない）。隠したのはユーザーの
+        // 意思なので勝手に呼び戻さず、そのままキャプチャへ進ませる。
+        guard isVisible else { return false }
+        // 別 Space にある場合は前面化しない。NSApp.activate すると Space ごと
+        // 切り替わり、いま撮ろうとしている画面から引き剥がしてしまう。
+        guard isOnActiveSpace else { return false }
+        // アプリがアクティブなら結果ウィンドウは見えている（アクティブな間は
+        // .floating で手前に固定される）。環境設定など同じアプリの別ウィンドウ
+        // がキーでも見失ってはいないので、isKeyWindow では判定しない。
+        return !isAppActive
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
