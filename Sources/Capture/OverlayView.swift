@@ -8,6 +8,20 @@ import AppKit
 // - カーソルは十字（レティクル）
 final class OverlayView: NSView {
 
+    /// カーソル下のウィンドウのハイライト情報（このビューのローカル座標）。
+    struct WindowHighlight: Equatable {
+        /// ウィンドウ全体の枠。隠れている部分も含む。
+        var frame: CGRect
+        /// 画面で実際に見えている領域。重なりを差し引いた矩形群。
+        var visibleRects: [CGRect]
+        /// 「アプリ名 — ウィンドウタイトル」。空ならラベルを描かない。
+        ///
+        /// ウィンドウが画面をまたぐと同じハイライトが複数のオーバーレイに
+        /// 配られる。ラベルを出すのは 1 枚だけにしたいので、それ以外には
+        /// 空を入れて配る（SelectionCoordinator が決める）。
+        var label: String
+    }
+
     /// 選択中の矩形（このビューのローカル座標）。nil なら未選択。
     var selectionRect: CGRect? {
         didSet {
@@ -16,14 +30,14 @@ final class OverlayView: NSView {
         }
     }
 
-    /// カーソル下のウィンドウ枠（このビューのローカル座標）。nil なら該当なし。
+    /// カーソル下のウィンドウ（このビューのローカル座標）。nil なら該当なし。
     ///
     /// クリックでウィンドウをキャプチャできること（CAP-06）を事前に伝えるため、
     /// ドラッグ開始前だけハイライトする。ドラッグ中は範囲選択に集中させたいので
     /// SelectionCoordinator 側で nil にする。
-    var hoveredWindowRect: CGRect? {
+    var hoveredWindow: WindowHighlight? {
         didSet {
-            guard hoveredWindowRect != oldValue else { return }
+            guard hoveredWindow != oldValue else { return }
             needsDisplay = true
         }
     }
@@ -137,28 +151,108 @@ final class OverlayView: NSView {
         drawDimensionLabel(for: selection, in: context)
     }
 
-    /// カーソル下のウィンドウ枠を淡くハイライトする（CAP-06）。
+    /// カーソル下のウィンドウをハイライトする（CAP-06）。
     ///
     /// 「クリックすればこのウィンドウが撮れる」ことを事前に見せるのが目的。
     /// 選択枠（白の実線 + 黒の縁取り）とは意図的に見た目を変えてある。
     /// 同じ描き方にすると、確定した選択とこれから起きうる候補の区別が
     /// つかなくなる。青系の塗りと破線でシステムの選択表現に寄せる。
+    ///
+    /// ★塗るのは「実際に見えている領域」だけにする。
+    /// ウィンドウ全体の枠を塗ると、手前のウィンドウに隠れている部分まで
+    /// 青くなり、ユーザーが見ている重なりと食い違う。
     private func drawHoveredWindowHighlight(in context: CGContext) {
-        guard let rect = hoveredWindowRect, rect.width > 0, rect.height > 0 else { return }
+        guard let highlight = hoveredWindow else { return }
 
-        // 画面外まで伸びる枠を描いても無駄なので可視範囲に切る。
-        let visible = rect.intersection(bounds)
-        guard !visible.isNull, !visible.isEmpty else { return }
+        // 画面外まで伸びる領域を描いても無駄なので可視範囲に切る。
+        let rects = highlight.visibleRects
+            .map { $0.intersection(bounds) }
+            .filter { !$0.isNull && !$0.isEmpty }
+        guard !rects.isEmpty else { return }
+
+        context.saveGState()
+        // 見えている領域の外には一切描かない。塗りも枠線もここで形が決まる。
+        context.clip(to: rects)
 
         context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor)
-        context.fill(visible)
+        context.fill(bounds)
 
+        // ウィンドウの輪郭を引く。クリップされるので、見えている部分の
+        // 枠だけが残る。線の外半分はクリップで削られるため太めに引く。
         context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.9).cgColor)
-        context.setLineWidth(2.0)
+        context.setLineWidth(4.0)
         context.setLineDash(phase: 0, lengths: [6, 4])
-        context.stroke(rect.insetBy(dx: 1, dy: 1))
-        // 破線設定は context に残るため、後続の描画に漏らさないよう戻す。
-        context.setLineDash(phase: 0, lengths: [])
+        context.stroke(highlight.frame.insetBy(dx: 1, dy: 1))
+
+        context.restoreGState()
+
+        drawWindowLabel(highlight.label, anchoredIn: rects, in: context)
+    }
+
+    /// ハイライト中のウィンドウの名前を見えている領域の中に描く。
+    ///
+    /// 同じ位置・同じ大きさのウィンドウが重なっていると枠の形だけでは
+    /// どれが撮れるのか判別できないため、名前で確定させる。
+    private func drawWindowLabel(_ label: String, anchoredIn rects: [CGRect], in context: CGContext) {
+        guard !label.isEmpty else { return }
+
+        let padding: CGFloat = 6
+        let inset: CGFloat = 8
+        // 幅の上限。ウィンドウが広いときにタイトルが画面いっぱいに伸びるのを防ぐ。
+        let maximumTextWidth: CGFloat = 420
+        // これ以下だと数文字しか出ず、かえって紛らわしい。
+        let minimumTextWidth: CGFloat = 60
+
+        // 長いタイトルは末尾を省略する（VSCode のように「作業内容 — プロジェクト名」
+        // と続く長大なタイトルがある）。
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraph,
+        ]
+        let string = NSAttributedString(string: label, attributes: attributes)
+        let naturalSize = string.size()
+        let boxHeight = naturalSize.height + padding
+
+        // 箱が丸ごと収まる可視矩形の中から、最も広いものを選ぶ。
+        //
+        // 単純に最大面積の矩形を選ぶと、それが細い帯だったときに
+        // 「入らないので描かない」で終わってしまう。さらに悪いことに、
+        // 高さを見ないと箱が可視領域の外（＝手前のウィンドウの上）へ
+        // はみ出す。ラベルはクリップの外で描くので誰も止めてくれない。
+        let required = CGSize(
+            width: minimumTextWidth + padding * 2 + inset * 2,
+            height: boxHeight + inset * 2
+        )
+        let fitting = rects.filter { $0.width >= required.width && $0.height >= required.height }
+        guard let anchor = fitting.max(by: { $0.width * $0.height < $1.width * $1.height })
+        else { return }
+
+        let textWidth = min(naturalSize.width, anchor.width - (padding + inset) * 2, maximumTextWidth)
+        let boxSize = CGSize(width: textWidth + padding * 2, height: boxHeight)
+
+        // 可視領域の左上に置く。ウィンドウのタイトルバーがある側なので、
+        // 内容の邪魔になりにくい。
+        let origin = CGPoint(
+            x: anchor.minX + inset,
+            y: anchor.maxY - boxSize.height - inset
+        )
+        let box = CGRect(origin: origin, size: boxSize)
+
+        context.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
+        context.addPath(CGPath(roundedRect: box, cornerWidth: 4, cornerHeight: 4, transform: nil))
+        context.fillPath()
+
+        string.draw(
+            in: CGRect(
+                x: box.minX + padding,
+                y: box.minY + padding / 2,
+                width: textWidth,
+                height: naturalSize.height
+            )
+        )
     }
 
     /// 寸法（幅 × 高さ px）をカーソル近傍に描く。

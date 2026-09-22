@@ -36,18 +36,22 @@ final class SelectionCoordinator {
 
     private var completion: ((CaptureTarget?) -> Void)?
 
-    /// ウィンドウ候補を引くための共有可能コンテンツ（CAP-06）。
+    /// 重なり順を解決したウィンドウ候補（CAP-06）。
     ///
-    /// AppCoordinator が先読みしているものを渡してもらう。ここで取り直すと
+    /// AppCoordinator が先読みした共有可能コンテンツから作る。ここで取り直すと
     /// クリックのたびに数百 ms 待たされる。先読みが間に合っていない場合は
     /// nil のままで、ウィンドウのハイライトと確定が単に無効になる。
-    private var shareableContent: SCShareableContent?
+    ///
+    /// 一度作ったら選択が終わるまで使い回す。オーバーレイを出している間は
+    /// 他アプリのウィンドウが前後しないため、カーソルが動くたびに重なり順を
+    /// 取り直す必要がない。
+    private var candidates: WindowPicker.Candidates?
 
     /// 現在ハイライトしているウィンドウ。クリック時にこれを確定する。
     ///
     /// mouseUp の時点で引き直すのではなくホバーの結果を使うのは、
     /// 「見えているハイライトと撮れるものを必ず一致させる」ため。
-    private var hoveredWindow: SCWindow?
+    private var hoveredWindow: WindowPicker.Hovered?
 
     /// 範囲選択を開始する。
     /// - Parameters:
@@ -62,7 +66,6 @@ final class SelectionCoordinator {
         guard windows.isEmpty else { return }
 
         self.completion = completion
-        self.shareableContent = content
         anchorPoint = nil
         didDrag = false
         hoveredWindow = nil
@@ -81,6 +84,9 @@ final class SelectionCoordinator {
 
         installKeyMonitor()
         observeScreenChanges()
+        // 候補はオーバーレイを出したあとに作る。自アプリのどのウィンドウが
+        // オーバーレイなのかは、生成後でないと windowNumber で識別できない。
+        candidates = makeCandidates(from: content)
         // 初期位置のウィンドウをハイライトしておく。オーバーレイが出た直後は
         // マウスが動いていないため mouseMoved が来ず、動かすまで
         // 「クリックで撮れる」ことに気づけない。
@@ -95,7 +101,10 @@ final class SelectionCoordinator {
     /// 選択が既に終わっていた場合（windows が空）は何もしない。
     func updateShareableContent(_ content: SCShareableContent?) {
         guard !windows.isEmpty else { return }
-        shareableContent = content
+        candidates = makeCandidates(from: content)
+        // ドラッグ中に届いた場合はハイライトを出さない。範囲選択に入った
+        // 時点で消してあるものを、先読みの完了で勝手に戻さない。
+        guard anchorPoint == nil else { return }
         // 注入時点のカーソル位置で即座にハイライトを出す。次に動かすまで
         // 反映されないと、素早くクリックしたときに何も撮れない。
         updateHoveredWindow(at: NSEvent.mouseLocation)
@@ -147,8 +156,8 @@ final class SelectionCoordinator {
         // ウィンドウ選択に割り当てた。クリック位置にウィンドウがない場合は
         // 従来どおりキャンセルするので、誤クリックの逃げ道は残っている。
         guard didDrag else {
-            if let window = hoveredWindow {
-                finish(with: .window(window))
+            if let hoveredWindow {
+                finish(with: .window(hoveredWindow.window))
             } else {
                 finish(with: nil)
             }
@@ -174,39 +183,76 @@ final class SelectionCoordinator {
 
     // MARK: - ウィンドウのハイライト（CAP-06）
 
+    /// 重なり順を解決した候補一覧を作る。
+    ///
+    /// 自アプリのウィンドウのうちオーバーレイ以外（結果ウィンドウ・環境設定
+    /// ウィンドウ）は、キャプチャ対象にはならないが他アプリのウィンドウを
+    /// 実際に覆い隠している。遮蔽物として渡さないと、結果ウィンドウの陰に
+    /// いて見えていないウィンドウを選べてしまう。
+    ///
+    /// オーバーレイ自身は渡さない。全画面を覆っているため、遮蔽物に数えると
+    /// 画面上のすべてが隠れていることになり、何も選べなくなる。
+    private func makeCandidates(from content: SCShareableContent?) -> WindowPicker.Candidates? {
+        guard let content else { return nil }
+        let overlayNumbers = Set(windows.map(\.windowNumber))
+        let ownWindows = NSApp.windows
+            .filter { $0.isVisible && !overlayNumbers.contains($0.windowNumber) }
+            // SCWindow.frame と揃えるため CoreGraphics 座標に直す。
+            .map { ScreenGeometry.convertToCoreGraphics($0.frame) }
+        return WindowPicker.candidates(from: content, foregroundOccluders: ownWindows)
+    }
+
     /// カーソル下のウィンドウを引き直し、全オーバーレイに反映する。
     private func updateHoveredWindow(at point: CGPoint) {
-        guard let content = shareableContent else {
+        guard let candidates else {
             clearHoveredWindow()
             return
         }
-        guard let window = WindowPicker.window(at: point, in: content) else {
+        guard let hit = WindowPicker.hitTest(at: point, in: candidates) else {
             clearHoveredWindow()
             return
         }
         // 同じウィンドウなら描画し直さない（windowID で比較する。
         // SCWindow のインスタンスは content を取り直すと別物になる）。
-        guard window.windowID != hoveredWindow?.windowID else { return }
-        hoveredWindow = window
+        // 重なり順は選択中に変わらないので、可視領域も描き直す必要はない。
+        guard hit.window.windowID != hoveredWindow?.window.windowID else { return }
+        hoveredWindow = hit
 
-        // SCWindow.frame は CoreGraphics 座標なので AppKit 座標に直してから
-        // 各オーバーレイのローカル座標へ落とす。
-        let globalRect = ScreenGeometry.convertToAppKit(window.frame)
+        // SCWindow.frame と可視領域は CoreGraphics 座標なので AppKit 座標に
+        // 直してから、各オーバーレイのローカル座標へ落とす。
+        let globalFrame = ScreenGeometry.convertToAppKit(hit.window.frame)
+        let globalVisible = hit.visibleRects.map(ScreenGeometry.convertToAppKit)
+
+        // ラベルを出すオーバーレイを 1 枚だけ決める。画面をまたぐウィンドウで
+        // 同じ名前が両画面に出ると、2 つ選ばれているように見えてしまう。
+        // 最も広く見えている画面に出すのが、目が向いている先に近い。
+        let labeled = windows.max { a, b in
+            visibleArea(of: globalVisible, on: a) < visibleArea(of: globalVisible, on: b)
+        }
+
         for overlay in windows {
-            let frame = overlay.frame
-            overlay.overlayView.hoveredWindowRect = CGRect(
-                x: globalRect.origin.x - frame.origin.x,
-                y: globalRect.origin.y - frame.origin.y,
-                width: globalRect.width,
-                height: globalRect.height
+            let origin = overlay.frame.origin
+            overlay.overlayView.hoveredWindow = OverlayView.WindowHighlight(
+                frame: globalFrame.offsetBy(dx: -origin.x, dy: -origin.y),
+                visibleRects: globalVisible.map { $0.offsetBy(dx: -origin.x, dy: -origin.y) },
+                label: overlay === labeled ? hit.label : ""
             )
+        }
+    }
+
+    /// そのオーバーレイの上で可視領域が占める面積（AppKit グローバル座標）。
+    private func visibleArea(of rects: [CGRect], on overlay: OverlayWindow) -> CGFloat {
+        rects.reduce(0) { total, rect in
+            let clipped = rect.intersection(overlay.frame)
+            guard !clipped.isNull, !clipped.isEmpty else { return total }
+            return total + clipped.width * clipped.height
         }
     }
 
     private func clearHoveredWindow() {
         hoveredWindow = nil
         for overlay in windows {
-            overlay.overlayView.hoveredWindowRect = nil
+            overlay.overlayView.hoveredWindow = nil
         }
     }
 
@@ -288,7 +334,7 @@ final class SelectionCoordinator {
         completion = nil
         anchorPoint = nil
         hoveredWindow = nil
-        shareableContent = nil
+        candidates = nil
 
         // 実装計画 6.2: オーバーレイは「キャプチャ前に確実に閉じる」。
         // excludingWindows だけに頼らず、写り込みの可能性を物理的に消す。
