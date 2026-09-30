@@ -13,6 +13,15 @@ final class ResultWindow: NSObject, NSWindowDelegate {
 
     /// ウィンドウが閉じられたときの通知（保持を解除してメモリを解放するため）。
     var onClose: (() -> Void)?
+    /// 「新規キャプチャ」が押されたときの通知（CAP-09）。
+    var onNewCapture: (() -> Void)?
+
+    /// 新規キャプチャのために一時的に隠しているか。
+    private var isHiddenForCapture = false
+
+    /// OCR を始めたときに伸ばすテキスト欄の高さ。ResultView の textPane の
+    /// idealHeight と揃える。
+    private static let textPaneHeight: CGFloat = 180
 
     func show(capture: CaptureResult) {
         let model = ResultViewModel(capture: capture)
@@ -45,16 +54,19 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         model.requestClose = { [weak self] in
             self?.close()
         }
+        model.requestNewCapture = { [weak self] in
+            self?.onNewCapture?()
+        }
+        model.onTextPaneOpened = { [weak self] in
+            self?.growForTextPane()
+        }
 
         self.window = window
 
         // メニューバーアプリは通常非アクティブなので、明示的に前面に出す。
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-
-        // OCR-01: ウィンドウを出した後に自動で認識を開始する。
-        // 画像は先に見えているので、OCR の完了は待たせない（4.3）。
-        model.recognize()
+        // OCR は自動では始めない。「テキストを認識」を押したときに走る（OCR-01）。
     }
 
     /// 画像の大きさに合わせた初期サイズ。
@@ -70,8 +82,9 @@ final class ResultWindow: NSObject, NSWindowDelegate {
     private static func initialContentSize(for capture: CaptureResult) -> NSSize {
         let pointSize = capture.pointSize
 
-        // テキスト欄とボタンバーの分を足す。
-        let chromeHeight: CGFloat = 240
+        // 縮めたテキスト欄とボタンバーの分を足す。テキスト欄は OCR を
+        // 始めたときに growForTextPane() で広げる（OCR-01）。
+        let chromeHeight: CGFloat = 90
         // ウィンドウが出る画面の広さで頭打ちにする。撮影元の画面とは限らない
         // （2x の画面で撮って 1x の画面にウィンドウが出ることがある）が、
         // ポイントどうしの比較なので大小関係は正しく、上限として機能する。
@@ -90,7 +103,45 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         window?.close()
     }
 
+    /// テキスト欄を開いた分だけウィンドウを下へ伸ばす（OCR-01）。
+    ///
+    /// 伸ばさないと VSplitView がいまの高さを画像とテキストで分け合う
+    /// ため、見えていた画像が急に狭くなる。上端は動かさず、画面の下端に
+    /// 届く場合は上へずらし、それでも足りなければ伸ばせる分だけ伸ばす。
+    private func growForTextPane() {
+        guard let window, let visible = window.screen?.visibleFrame else { return }
+        var frame = window.frame
+        let extra = min(Self.textPaneHeight, max(0, visible.height - frame.height))
+        guard extra > 0 else { return }
+        frame.size.height += extra
+        frame.origin.y -= extra
+        if frame.minY < visible.minY {
+            frame.origin.y = visible.minY
+        }
+        window.setFrame(frame, display: true, animate: true)
+    }
+
+    // MARK: - 新規キャプチャ（CAP-09）
+
+    /// 範囲選択の間だけ隠す。撮りたい場所を結果ウィンドウが覆わないようにする。
+    ///
+    /// 写り込み自体は自アプリのウィンドウをフィルタで除外しているので
+    /// 起きないが、隠さないと下にあるものが見えず選べない。
+    func hideForCapture() {
+        guard let window, window.isVisible else { return }
+        isHiddenForCapture = true
+        window.orderOut(nil)
+    }
+
+    /// キャンセルや失敗で新しい結果が出なかったときに元へ戻す。
+    func restoreAfterCapture() {
+        guard isHiddenForCapture else { return }
+        isHiddenForCapture = false
+        bringToFront()
+    }
+
     /// メニューバーからモードが変更されたとき、開いているウィンドウにも反映する。
+    /// 認識を始める前なら、モードを選んでおくだけで認識はしない（OCR-01）。
     func applyMode(_ mode: RecognitionMode) {
         model?.mode = mode
     }
@@ -179,6 +230,8 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         // 参照を明示的に切らないと NSWindow 側の保持で CGImage が残る。
         model?.cancelRecognition()
         model?.requestClose = nil
+        model?.requestNewCapture = nil
+        model?.onTextPaneOpened = nil
         model = nil
         window?.delegate = nil
         // contentViewController は触らない。クローズ処理の途中でビュー階層を

@@ -13,11 +13,20 @@ struct ResultView: View {
         // テキストの末尾がボタンバーの下に隠れて最後までスクロール
         // できなくなっていた。実体のある領域として積む方が確実。
         VStack(spacing: 0) {
-            VSplitView {
+            if model.hasStartedRecognition {
+                VSplitView {
+                    imagePane
+                    textPane
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // OCR を始めるまではテキスト欄を 1 行のバーまで縮め、
+                // 画像に場所を譲る（OCR-01）。
                 imagePane
-                textPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                collapsedTextBar
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
             buttonBar
@@ -111,6 +120,37 @@ struct ResultView: View {
         .background(.background)
     }
 
+    /// OCR を始める前のテキスト欄（OCR-01）。
+    ///
+    /// 認識モードはここで先に選んでおける。モードごとに認識をやり直すと
+    /// 時間がかかるため、押す前に決められる方が無駄がない。
+    private var collapsedTextBar: some View {
+        HStack(spacing: 8) {
+            Button("テキストを認識", systemImage: "text.viewfinder") {
+                model.startRecognition()
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            modePicker
+
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.background)
+    }
+
+    private var modePicker: some View {
+        Picker("認識モード", selection: $model.mode) {
+            ForEach(RecognitionMode.allCases, id: \.self) { mode in
+                Text(mode.displayName).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+    }
+
     /// 認識モードの切替（6.3）。切り替えると即座に再認識される。
     ///
     /// 認識中の表示で要素を出し入れすると Picker の位置や右端のラベル幅が
@@ -118,14 +158,7 @@ struct ResultView: View {
     /// 進捗表示はテキストペイン側のオーバーレイが担う。
     private var modeBar: some View {
         HStack(spacing: 8) {
-            Picker("認識モード", selection: $model.mode) {
-                ForEach(RecognitionMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            modePicker
 
             Spacer()
 
@@ -183,15 +216,26 @@ struct ResultView: View {
 
     private var buttonBar: some View {
         HStack(spacing: 8) {
+            // CAP-09: 結果を見ながら続けて撮る。選択中は結果ウィンドウを隠す。
+            Button("新規キャプチャ", systemImage: "plus.viewfinder") {
+                model.requestNewCapture?()
+            }
+            .keyboardShortcut("n", modifiers: .command)
+
+            Divider().frame(height: 16)
+
             Button("画像をコピー") { model.copyImage() }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
             // Cmd+C は割り当てない。TextEditor で一部を選択して
             // コピーする操作を奪ってしまう（4.3 で誤認識をその場で直して
             // 部分的にコピーする使い方を想定している）。
-            Button("テキストをコピー") { model.copyText() }
-                .keyboardShortcut("c", modifiers: [.command, .option])
-                .disabled(!model.canCopyText)
+            // OCR を始めるまではコピーするテキストが無いので出さない。
+            if model.hasStartedRecognition {
+                Button("テキストをコピー") { model.copyText() }
+                    .keyboardShortcut("c", modifiers: [.command, .option])
+                    .disabled(!model.canCopyText)
+            }
 
             Button("保存") { model.save() }
                 .keyboardShortcut("s", modifiers: .command)

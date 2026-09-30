@@ -118,7 +118,10 @@ final class AppCoordinator {
 
     // MARK: - キャプチャ
 
-    private func beginCapture() {
+    /// - Parameter hidingResultWindow: 結果ウィンドウの「新規キャプチャ」から
+    ///   始めたとき true（CAP-09）。選択中は結果ウィンドウを隠し、新しい結果が
+    ///   出なかったら元に戻す。
+    private func beginCapture(hidingResultWindow: Bool = false) {
         // 多重起動を防ぐ。
         guard selection == nil else { return }
 
@@ -127,6 +130,9 @@ final class AppCoordinator {
         Task { @MainActor in
             // 段階 2: 権限が無ければ案内を出して中断する（基準 10）。
             guard ScreenPermission.ensure() else { return }
+            if hidingResultWindow {
+                self.resultWindow?.hideForCapture()
+            }
             self.startSelection()
         }
     }
@@ -159,6 +165,7 @@ final class AppCoordinator {
             guard let target else {
                 // キャンセル（CAP-05）。先読みも破棄する。
                 self.discardPreload()
+                self.resultWindow?.restoreAfterCapture()
                 return
             }
             self.performCapture(target: target)
@@ -197,6 +204,7 @@ final class AppCoordinator {
                 showResult(capture)
             } catch {
                 presentError(error)
+                self.resultWindow?.restoreAfterCapture()
             }
         }
     }
@@ -225,6 +233,9 @@ final class AppCoordinator {
             // 別のウィンドウに差し替わっている場合は消さない。
             guard let self, self.resultWindow === window else { return }
             self.resultWindow = nil
+        }
+        window.onNewCapture = { [weak self] in
+            self?.beginCapture(hidingResultWindow: true)
         }
         window.show(capture: capture)
     }
@@ -268,6 +279,8 @@ final class AppCoordinator {
             ・メニューバーのアイコンをクリックすると選択が始まります
             ・ドラッグで範囲をキャプチャ
             ・ウィンドウをクリックするとそのウィンドウをキャプチャ
+            ・結果ウィンドウの「テキストを認識」で OCR を実行
+            ・結果ウィンドウの「新規キャプチャ」で続けて撮影
             ・右クリックでメニュー（認識モードの切替・環境設定）
             ・Esc で選択をキャンセルできます
 

@@ -248,6 +248,9 @@ final class MenuBarController {
     }
 
     @objc private func menuQuit() {
-        NSApp.terminate(nil)
+        // ステータスメニューのアクション中にモーダルを回さない（beginCapture と同じ理由）。
+        Task { @MainActor in
+            QuitConfirmation.confirmAndTerminate()
+        }
     }
 }

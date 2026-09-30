@@ -92,13 +92,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        menu.addItem(
+        // ⌘Q は確認を挟む（QuitConfirmation）。terminate(_:) を直接呼ばない。
+        let quit = menu.addItem(
             withTitle: "\(name) を終了",
-            action: #selector(NSApplication.terminate(_:)),
+            action: #selector(quitFromMenu),
             keyEquivalent: "q"
         )
+        quit.target = self
 
         return menu
+    }
+
+    /// メインメニューの「終了」（⌘Q）。
+    @objc private func quitFromMenu() {
+        QuitConfirmation.confirmAndTerminate()
     }
 
     /// メインメニューの「環境設定…」（⌘,）。
@@ -158,5 +165,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // メニューバーアプリなので、ウィンドウを全部閉じても終了しない。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+}
+
+// 終了前の確認。
+//
+// ⌘Q の押し間違いで常駐が消えると、気づかないままキャプチャできなくなる。
+// 確認はユーザーの終了操作（⌘Q・ステータスメニューの「終了」）にだけ挟む。
+// applicationShouldTerminate で止めないのは、Sparkle の更新による再起動や
+// ログアウト・再起動に伴う終了まで止めてしまうため。
+@MainActor
+enum QuitConfirmation {
+    /// ダイアログ表示中か。表示中に ⌘Q を押しても二重に出さない。
+    private static var isShowing = false
+
+    static func confirmAndTerminate() {
+        guard !isShowing else { return }
+        isShowing = true
+        defer { isShowing = false }
+
+        // LSUIElement アプリは非アクティブのことが多く、そのままだと
+        // ダイアログが他アプリの下に出る。
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "JPScreenShot を終了しますか？"
+        alert.informativeText = "終了するとメニューバーのアイコンが消え、キャプチャできなくなります。"
+        alert.addButton(withTitle: "終了")
+        let cancel = alert.addButton(withTitle: "キャンセル")
+        cancel.keyEquivalent = "\u{1b}"
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSApp.terminate(nil)
     }
 }

@@ -27,6 +27,13 @@ final class ResultViewModel {
     /// OCR テキスト。編集可能（4.3）。段階 5 で認識結果を流し込む。
     var text: String = ""
 
+    /// OCR を一度でも始めたか（OCR-01）。
+    ///
+    /// OCR は「テキストを認識」を押したときだけ走らせる。スクリーンショット
+    /// として使うことが多く、使わない認識結果のためにテキスト欄が画像の
+    /// 場所を取るのは邪魔なため。false の間はテキスト欄を縮めて表示する。
+    var hasStartedRecognition: Bool = false
+
     /// OCR 実行中か。プレースホルダ表示に使う（4.3）。
     var isRecognizing: Bool = false
 
@@ -63,12 +70,20 @@ final class ResultViewModel {
     /// ウィンドウを閉じる要求。
     var requestClose: (() -> Void)?
 
+    /// 結果ウィンドウから新しいキャプチャを始める要求（CAP-09）。
+    var requestNewCapture: (() -> Void)?
+
+    /// テキスト欄を開いたときの通知。ウィンドウを伸ばして画像の場所を確保する。
+    var onTextPaneOpened: (() -> Void)?
+
     /// 現在の認識モード。変更すると即座に再認識する（6.3）。
     var mode: RecognitionMode {
         didSet {
             guard mode != oldValue else { return }
             // 直前に使ったモードを次回の既定として記憶する（6.3）。
             Settings.shared.recognitionMode = mode
+            // 認識を始める前はモードを選んでおくだけにする（OCR-01）。
+            guard hasStartedRecognition else { return }
             recognize()
         }
     }
@@ -89,10 +104,18 @@ final class ResultViewModel {
 
     // MARK: - OCR
 
-    /// OCR を実行する（OCR-01: ボタンを押させず自動実行）。
+    /// 「テキストを認識」ボタン（OCR-01）。テキスト欄を開いて認識を始める。
+    func startRecognition() {
+        guard !hasStartedRecognition else { return }
+        hasStartedRecognition = true
+        onTextPaneOpened?()
+        recognize()
+    }
+
+    /// OCR を実行する。
     ///
     /// 画像プレビューは OCR 完了を待たず先に表示されている（4.3）。
-    func recognize() {
+    private func recognize() {
         // 前の認識が走っていれば捨てる（モードを素早く切り替えた場合）。
         recognitionTask?.cancel()
         generation += 1
