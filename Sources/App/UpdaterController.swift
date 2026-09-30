@@ -20,6 +20,14 @@ final class UpdaterController {
         userDriverDelegate: nil
     )
 
+    init() {
+        #if DEBUG
+        // 開発版が配布版の更新を見つけて通知したり、自分を配布版で
+        // 置き換えたりしないようにする。手動の「更新を確認…」は残す。
+        controller.updater.automaticallyChecksForUpdates = false
+        #endif
+    }
+
     /// メニュー「更新を確認…」から呼ぶ。結果はすべて Sparkle の UI が表示する
     /// （最新である場合の「最新です」も含む）ため、呼び側で分岐は要らない。
     func checkForUpdates() {

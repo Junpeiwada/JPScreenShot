@@ -67,6 +67,10 @@ targets:
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         LSApplicationCategoryType: public.app-category.utilities
         NSHumanReadableCopyright: ""
+        # 表示名。Debug では APP_DISPLAY_NAME を変え、画面収録の設定一覧で
+        # 配布版と見分けられるようにする（下の configs.Debug を参照）。
+        CFBundleName: "$(APP_DISPLAY_NAME)"
+        CFBundleDisplayName: "$(APP_DISPLAY_NAME)"
         # Dock に出さずメニューバーのみに常駐する（非機能要求・常駐）
         LSUIElement: true
         # Sparkle: 更新フィード（GitHub Pages でホストする appcast）
@@ -92,6 +96,18 @@ targets:
         # App Sandbox は無効。デスクトップ保存（SAV-01）を追加の許可なしに
         # 動かすため。詳細は Docs/実装計画.md 8.1 を参照
         ENABLE_APP_SANDBOX: NO
+        APP_DISPLAY_NAME: JPScreenShot
+      configs:
+        # 開発版は Bundle ID を分ける。画面収録の許可（TCC）は Bundle ID ごとに
+        # 1 件しか持てず、署名の異なる配布版（Developer ID）と開発版
+        # （Apple Development）が同じ ID だと許可を奪い合って片方が撮れなくなる。
+        # ID を分ければ両方が許可を持ったまま共存できる（UserDefaults も別になる）。
+        #
+        # PRODUCT_NAME は変えない。変えるとモジュール名が変わり、テストの
+        # @testable import JPScreenShot が壊れる。
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPScreenShot.debug
+          APP_DISPLAY_NAME: JPScreenShot Debug
 
   # 純粋関数のテスト。画面もキャプチャ権限も不要な範囲だけを対象にする。
   JPScreenShotTests:
