@@ -32,7 +32,12 @@ final class ResultWindow: NSObject, NSWindowDelegate {
 
         let window = NSWindow(contentViewController: hosting)
         window.title = "JPScreenShot"
-        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        // 外周の水色の線（ResultView.windowBorder）をタイトルバーまで
+        // 回すため、中身をタイトルバーの下まで広げてタイトルバーを透明にする。
+        // 線をテーマフレーム（contentView.superview）に足す方法は AppKit が
+        // 「unknown subview」と警告し、将来の OS で壊れうるので使わない。
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
         // 撮影直後は確実に手前に出す。
@@ -48,7 +53,11 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         // NSOpenPanel）が出ただけでも発火するため、アプリ内のダイアログを
         // 開くたびに沈んでしまう。
         window.level = .floating
-        window.setContentSize(Self.initialContentSize(for: capture))
+        // .fullSizeContentView ではコンテンツ領域がタイトルバーを含むので、
+        // タイトルバーの高さを足さないと画像がその分だけ等倍で収まらない。
+        var contentSize = Self.initialContentSize(for: capture)
+        contentSize.height += window.frame.height - window.contentLayoutRect.height
+        window.setContentSize(contentSize)
         window.center()
 
         model.requestClose = { [weak self] in
@@ -94,8 +103,10 @@ final class ResultWindow: NSObject, NSWindowDelegate {
         // 以前は visible.width * 0.8 で上限を掛けていたため、幅の広い
         // キャプチャが強制的に縮小されてぼやけていた。
         // 画面に収まる限りは等倍で見えるようにする。
-        let width = min(max(pointSize.width, 480), visible.width)
-        let height = min(pointSize.height + chromeHeight, visible.height)
+        // 画像のまわりの余白（ResultView.imageMargin）も足す。
+        let margin = ResultView.imageMargin * 2
+        let width = min(max(pointSize.width + margin, 480), visible.width)
+        let height = min(pointSize.height + margin + chromeHeight, visible.height)
         return NSSize(width: width, height: height)
     }
 

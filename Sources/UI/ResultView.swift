@@ -5,6 +5,22 @@ import SwiftUI
 struct ResultView: View {
     @Bindable var model: ResultViewModel
 
+    /// ウィンドウの外周に引く線の色。アプリアイコンの水色に揃える。
+    /// 撮った画像がウィンドウの形をしていても、結果ウィンドウと見分けられる
+    /// ようにするための目印。
+    private static let borderColor = Color(red: 0x22 / 255, green: 0xAE / 255, blue: 0xDB / 255)
+    private static let borderWidth: CGFloat = 3
+    /// macOS 26 の標準ウィンドウの角の半径（NSWindow の _cornerRadius を実測）。
+    /// ずれても角の線が少し太る・細るだけで、隙間は出ない。
+    private static let windowCornerRadius: CGFloat = 16
+
+    /// 画像の外側に引く線の太さ。角丸にせずカチッとした四角で囲み、
+    /// ドロップシャドウと合わせて「置かれた画像」だと分かるようにする。
+    private static let imageBorderWidth: CGFloat = 2
+    /// 画像のまわりの余白。線と影が見える分を空ける。
+    /// ResultWindow の初期サイズ計算でもこの分を足す。
+    static let imageMargin: CGFloat = 16
+
     var body: some View {
         // ボタンバーは safeAreaInset ではなく VStack の兄弟として置く。
         //
@@ -37,6 +53,18 @@ struct ResultView: View {
                 feedbackBanner(feedback)
             }
         }
+        // タイトルバーは透明にしてあるので（ResultWindow）、その領域を
+        // 標準のウィンドウ背景で塗って見た目を元のタイトルバーに揃える。
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay { windowBorder }
+    }
+
+    /// ウィンドウの外周の線。タイトルバーまで回すため安全領域を無視する。
+    private var windowBorder: some View {
+        RoundedRectangle(cornerRadius: Self.windowCornerRadius, style: .continuous)
+            .strokeBorder(Self.borderColor, lineWidth: Self.borderWidth)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
     }
 
     // MARK: - 画像
@@ -45,6 +73,14 @@ struct ResultView: View {
         GeometryReader { geometry in
             ScrollView([.horizontal, .vertical]) {
                 imageContent(in: geometry.size)
+                    .overlay {
+                        // 線は画像の外側に描く。内側に描くと端の画素が隠れる。
+                        Rectangle()
+                            .stroke(.black, lineWidth: Self.imageBorderWidth)
+                            .padding(-Self.imageBorderWidth / 2)
+                    }
+                    .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+                    .padding(Self.imageMargin)
                     .frame(
                         maxWidth: .infinity,
                         maxHeight: .infinity,
@@ -98,6 +134,11 @@ struct ResultView: View {
     private func fittedSize(in available: CGSize) -> CGSize {
         let native = model.pointSize
         guard native.width > 0, native.height > 0 else { return .zero }
+        // 線と影のための余白を除いた広さに収める。
+        let available = CGSize(
+            width: available.width - Self.imageMargin * 2,
+            height: available.height - Self.imageMargin * 2
+        )
         guard available.width > 0, available.height > 0 else { return native }
 
         let scale = min(
