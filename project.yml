@@ -8,7 +8,7 @@ options:
   # 最終アップグレード確認バージョンを現在の Xcode に合わせる。
   # Xcode 側のボタンで直すと .xcodeproj（生成物）が書き換わり、
   # 次の xcodegen generate で消えるので project.yml 側で指定する。
-  xcodeVersion: "2650"
+  xcodeVersion: "2700"
 
 settings:
   base:
