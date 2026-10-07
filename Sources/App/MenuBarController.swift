@@ -44,7 +44,7 @@ final class MenuBarController {
         menu.autoenablesItems = false
 
         if let button = statusItem.button {
-            button.image = Self.icon(for: .idle)
+            button.image = Self.icon()
             button.target = self
             button.action = #selector(handleClick(_:))
             // 右クリックも action に流す（既定では左クリックのみ）。
@@ -54,31 +54,13 @@ final class MenuBarController {
         buildMenu()
     }
 
-    // MARK: - アイコンの状態
+    // MARK: - アイコン
 
-    /// メニューバーアイコンの状態。
-    enum IconState {
-        /// 通常。
-        case idle
-        /// 範囲選択中。キャプチャ中であることが分かるようにする。
-        case capturing
-    }
-
-    /// キャプチャ中はアイコンを変えて、状態が分かるようにする。
-    func setIconState(_ state: IconState) {
-        statusItem.button?.image = Self.icon(for: state)
-    }
-
-    private static func icon(for state: IconState) -> NSImage? {
-        let name: String
-        switch state {
-        case .idle:
-            name = "text.viewfinder"
-        case .capturing:
-            // 選択中は十字（レティクル）に変えて、いま範囲選択中であることを示す。
-            name = "dot.viewfinder"
-        }
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: "JPScreenShot")
+    /// 点線の範囲＋十字カーソル（Assets.xcassets/MenuBarIcon）。
+    /// 範囲選択中も同じ図案のまま切り替えない。
+    private static func icon() -> NSImage? {
+        let image = NSImage(named: "MenuBarIcon")
+        image?.accessibilityDescription = "JPScreenShot"
         // テンプレート画像にするとダークモード/ライトモードに自動追従する。
         image?.isTemplate = true
         return image

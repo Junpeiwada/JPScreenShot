@@ -6,6 +6,16 @@ import ScreenCaptureKit
 // 実装計画 1.2 のとおり、必ずフィルタ方式を使う。
 // SCScreenshotManager.captureImage(in:) は簡潔だがコンテンツフィルタを
 // 受け取れず、暗転オーバーレイが写り込むため CAP-04 を満たせない。
+//
+// 撮影は macOS 26 の SCScreenshotManager.captureScreenshot(contentFilter:configuration:)
+// を使い、`.bothSDRAndHDR` で 1 回だけ撮る（実装計画-HDR）。旧 captureImage は SDR しか
+// 返せない。
+//
+// ★実測（2026-10-07）: `.bothSDRAndHDR` は sdrImage にも hdrImage にも**同じ HDR 画像**
+// （16bit float・拡張 sRGB）を返す（displayIntent .local / .canonical どちらでも）。
+// 「sdrImage はディスプレイの色空間の SDR」ではない。`.sdr` 単独は色空間 nil、`.hdr` 単独は
+// HDR 画像が sdrImage 側に入る。よって `hdrImage ?? sdrImage` を HDR ソースとし、
+// SDR 版は `SDRConversion` で自前生成する。
 enum CaptureError: LocalizedError {
     case noDisplayFound
     case captureFailed(Error)
@@ -16,6 +26,17 @@ enum CaptureError: LocalizedError {
             "キャプチャ対象のディスプレイを特定できませんでした。"
         case .captureFailed(let error):
             "キャプチャに失敗しました: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// 撮影 API が画像を返さなかった。
+private enum CaptureImageError: LocalizedError {
+    case missingImage
+
+    var errorDescription: String? {
+        switch self {
+        case .missingImage: "画像が取得できませんでした。"
         }
     }
 }
@@ -31,6 +52,17 @@ struct CaptureResult {
     let image: CGImage
     /// 1 ポイントあたりのピクセル数（Retina なら 2.0）。
     let scale: CGFloat
+    /// HDR 版（拡張 sRGB・16bit float。1.0 超の明部を含む）。
+    ///
+    /// HDR 非対応の環境や、実質 SDR のとき（`HDRAvailability` が判定）は nil。
+    /// `image`（SDR 版。HDR ソースから `SDRConversion` で作ったもの）と同じピクセル寸法・同じ範囲を写している。OCR は常に `image` を使う。
+    let hdrImage: CGImage?
+
+    init(image: CGImage, scale: CGFloat, hdrImage: CGImage? = nil) {
+        self.image = image
+        self.scale = scale
+        self.hdrImage = hdrImage
+    }
 
     /// 画面上で見えていた大きさ（ポイント）。
     ///
@@ -144,26 +176,113 @@ enum ScreenCaptureService {
             height: localRect.height.rounded()
         )
 
-        let config = SCStreamConfiguration()
+        let config = SCScreenshotConfiguration()
         config.sourceRect = sourceRect
         // CAP-02: ポイントの backingScale 倍のピクセル数を要求して
         // Retina 解像度のまま取得する（ダウンスケールさせない）。
+        //
+        // 旧 SCStreamConfiguration の captureResolution = .best / scalesToFit = false は
+        // SCScreenshotConfiguration に存在しない。代わりに width/height を
+        // 「sourceRect のポイント × backingScale」の整数ピクセルで明示し、
+        // 撮影範囲と出力ピクセルを 1:1 にして等倍を担保する
+        // （sourceRect は上で整数に丸め済みなので補間も入らない）。
         let scale = screen.backingScaleFactor
         config.width = Int((sourceRect.width * scale).rounded())
         config.height = Int((sourceRect.height * scale).rounded())
-        config.captureResolution = .best
         config.showsCursor = false
-        config.scalesToFit = false
+        config.dynamicRange = .bothSDRAndHDR
+        config.displayIntent = Self.displayIntent
 
+        return try await screenshot(
+            filter: filter, config: config, scale: scale,
+            displayMaxEDR: screen.maximumPotentialExtendedDynamicRangeColorComponentValue,
+            displayColorSpace: Self.displayColorSpace(of: screen),
+            shadow: false)
+    }
+
+    /// 表示意図。`.local` = 撮ったディスプレイの見え方のまま。
+    ///
+    /// `.canonical`（標準ディスプレイ基準）にすると、画面で見ていた色・明るさと
+    /// 変わって見える。このアプリは「画面で見えたものをそのまま画像にする」ので
+    /// `.local` を基本にする。
+    private static let displayIntent: SCScreenshotConfiguration.DisplayIntent = .local
+
+    /// 撮影して SDR/HDR を CaptureResult にまとめる。
+    ///
+    /// ★画像処理（HDR 判定・影の合成）は MainActor の外で行う。HDR 判定は CIContext による
+    /// GPU 処理と読み戻し、影は Retina 大画像のぼかし描画を SDR・HDR の 2 回で、どれも
+    /// メインスレッドで走らせると UI が止まる。`SCScreenshotOutput` は Sendable でないので、
+    /// MainActor 側で CGImage（Sendable）だけを取り出して渡す。NSScreen の EDR 値も
+    /// MainActor でしか読めないため、呼び出し側で読んだ値を受け取っている。
+    private static func screenshot(
+        filter: SCContentFilter,
+        config: SCScreenshotConfiguration,
+        scale: CGFloat,
+        displayMaxEDR: CGFloat,
+        displayColorSpace: CGColorSpace,
+        shadow: Bool
+    ) async throws -> CaptureResult {
+        let output: SCScreenshotOutput
         do {
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            return CaptureResult(image: image, scale: scale)
+            output = try await SCScreenshotManager.captureScreenshot(
+                contentFilter: filter, configuration: config)
         } catch {
             throw CaptureError.captureFailed(error)
         }
+        // 実測どおり sdrImage は SDR ではないので、HDR ソースは hdrImage 優先で取る。
+        guard let source = output.hdrImage ?? output.sdrImage else {
+            throw CaptureError.captureFailed(CaptureImageError.missingImage)
+        }
+        do {
+            return try await postProcess(
+                source: source, maxEDR: displayMaxEDR, displayColorSpace: displayColorSpace,
+                shadow: shadow, scale: scale)
+        } catch {
+            // SDRConversionError（カーネル未読込／描画失敗）の文言をそのまま利用者へ渡す。
+            throw CaptureError.captureFailed(error)
+        }
+    }
+
+    /// SDR 版の色空間にするディスプレイの色空間。
+    /// 画面が無い・取れない、または出力に使えない空間（RGB でない・出力不可）なら Display P3 → sRGB。
+    private static func displayColorSpace(of screen: NSScreen?) -> CGColorSpace {
+        if let cs = screen?.colorSpace?.cgColorSpace, cs.supportsOutput, cs.model == .rgb {
+            return cs
+        }
+        return CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpace(name: CGColorSpace.sRGB)!
+    }
+
+    /// 撮影後の画像処理。MainActor の外（グローバル並行プール）で実行する。
+    ///
+    /// SDR 版を作れなければ `SDRConversionError` を投げる（黙って違う絵にしない）。
+    @concurrent
+    nonisolated private static func postProcess(
+        source: CGImage, maxEDR: CGFloat, displayColorSpace: CGColorSpace,
+        shadow: Bool, scale: CGFloat
+    ) async throws -> CaptureResult {
+        let sdr: CGImage
+        let resolvedHDR: CGImage?
+        switch SDRConversion.plan(for: source) {
+        case .convertFromHDR:
+            sdr = try SDRConversion.makeSDR(from: source, colorSpace: displayColorSpace)
+            // HDR ソースが実質 SDR（明部が無い／ディスプレイが HDR 非対応）なら nil にする。
+            resolvedHDR = HDRAvailability.resolve(source, displayMaxEDR: maxEDR)
+        case .useAsSDR:
+            // Intel Mac などで 8bit が来た。そのまま SDR 版とし、HDR 版は無し。
+            sdr = source
+            resolvedHDR = nil
+        }
+
+        // CAP-07: 影は等倍で撮った画像の上に合成する。
+        //
+        // 影の余白もポイント基準の値に scale を掛けて描くので、合成後も
+        // 「1 ポイント = scale ピクセル」の関係は保たれる。倍率は変わらない。
+        // SDR 版にも HDR 版にも同じ影を付ける（形式は元画像に合わせて合成される）。
+        guard shadow else { return CaptureResult(image: sdr, scale: scale, hdrImage: resolvedHDR) }
+        return CaptureResult(
+            image: ShadowCompositor.addShadow(to: sdr, scale: scale),
+            scale: scale,
+            hdrImage: resolvedHDR.map { ShadowCompositor.addShadow(to: $0, scale: scale) })
     }
 
     /// 指定したウィンドウ 1 つをキャプチャする（CAP-06 / CAP-07）。
@@ -180,48 +299,38 @@ enum ScreenCaptureService {
         // 手前のウィンドウが写り込んでしまう）。
         let filter = SCContentFilter(desktopIndependentWindow: window)
 
-        let config = SCStreamConfiguration()
+        let config = SCScreenshotConfiguration()
         // ★影は ScreenCaptureKit に任せない（常に true = 影を除外して撮る）。
         //
-        // ignoreShadowsSingleWindow = false にすれば影付きで撮れるが、
+        // ignoreShadows = false にすれば影付きで撮れるが、
         // 撮影範囲が広がるのに contentRect は影を含まない範囲を返すため、
-        // 内容が縮小されてぼやける（実測: 鮮明度 7.684 → 4.625）。
+        // 内容が縮小されてぼやける（実測: 鮮明度 7.684 → 4.625。旧 API での値）。
         // 影が必要な場合は ShadowCompositor で後から合成する。
-        config.ignoreShadowsSingleWindow = true
+        config.ignoreShadows = true
         config.showsCursor = false
-        config.captureResolution = .best
-        config.scalesToFit = false
+        config.dynamicRange = .bothSDRAndHDR
+        config.displayIntent = Self.displayIntent
 
         // CAP-02: Retina 解像度を維持する。
         //
-        // 指定した width/height に内容が合わせ込まれるため、実際の撮影範囲と
-        // 一致していなければ必ずスケーリングが入る。影を除外した今、
-        // 撮影範囲は contentRect と一致するのでこれで等倍になる。
-        // width/height を省略すると既定サイズ（1920×1080）に強制されて
-        // ぼやけるため、省略はできない。
+        // 旧 API の captureResolution / scalesToFit は新 API に無い。指定した
+        // width/height に内容が合わせ込まれるため、実際の撮影範囲と一致して
+        // いなければスケーリングが入る。影を除外した今、撮影範囲は contentRect と
+        // 一致するので contentRect × pointPixelScale で等倍になる。
+        // width/height を省略すると既定サイズ（出力はコンテンツ寸法）に依存して
+        // 等倍が保証できないため、明示する。
         let scale = CGFloat(filter.pointPixelScale)
         let contentSize = filter.contentRect.size
         config.width = Int((contentSize.width * scale).rounded())
         config.height = Int((contentSize.height * scale).rounded())
 
-        let image: CGImage
-        do {
-            image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-        } catch {
-            throw CaptureError.captureFailed(error)
-        }
-
-        // CAP-07: 影は等倍で撮った画像の上に合成する。
-        //
-        // 影の余白もポイント基準の値に scale を掛けて描くので、合成後も
-        // 「1 ポイント = scale ピクセル」の関係は保たれる。倍率は変わらない。
-        guard includeShadow else {
-            return CaptureResult(image: image, scale: scale)
-        }
-        let shadowed = ShadowCompositor.addShadow(to: image, scale: scale)
-        return CaptureResult(image: shadowed, scale: scale)
+        // HDR 判定と SDR 版の色空間に使うディスプレイ。ウィンドウの載っている画面。
+        let windowScreen = ScreenGeometry.screen(
+            containing: ScreenGeometry.convertToAppKit(window.frame)) ?? NSScreen.main
+        return try await screenshot(
+            filter: filter, config: config, scale: scale,
+            displayMaxEDR: windowScreen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1,
+            displayColorSpace: Self.displayColorSpace(of: windowScreen),
+            shadow: includeShadow)
     }
 }

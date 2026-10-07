@@ -143,9 +143,6 @@ final class AppCoordinator {
 
         // 実装計画 6.4: SCShareableContent の取得は時間がかかるため、
         // オーバーレイ表示と同時に先読みし、ドラッグ中に完了させる。
-        // 範囲選択中はアイコンを変えて状態を示す。
-        menuBar.setIconState(.capturing)
-
         let coordinator = SelectionCoordinator()
         selection = coordinator
 
@@ -162,7 +159,6 @@ final class AppCoordinator {
         coordinator.begin(content: preloadedContent) { [weak self] target in
             guard let self else { return }
             self.selection = nil
-            self.menuBar.setIconState(.idle)
             guard let target else {
                 // キャンセル（CAP-05）。先読みも破棄する。
                 self.discardPreload()
@@ -247,7 +243,7 @@ final class AppCoordinator {
     }
 
     #if DEBUG
-    /// Debug ビルド限定。起動引数 `-JPSOpenImage <PNG のパス>`（任意で
+    /// Debug ビルド限定。起動引数 `-JPSOpenImage <画像のパス（PNG／ゲインマップ付き HEIC・JPEG）>`（任意で
     /// `-JPSOpenImageScale <倍率>`、既定 2）があれば、その画像で結果ウィンドウを開く。
     /// 画面収録の権限なしで見た目を確認するためのもの。UserDefaults の引数ドメインで
     /// 読むので `defaults` への書き込みは起きない。リリースビルドには入らない。
@@ -256,13 +252,13 @@ final class AppCoordinator {
         guard let path = defaults.string(forKey: "JPSOpenImage"), !path.isEmpty else { return }
         let scale = defaults.object(forKey: "JPSOpenImageScale") != nil
             ? CGFloat(defaults.double(forKey: "JPSOpenImageScale")) : 2
-        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else {
+        // ゲインマップ付き HEIC/JPEG なら HDR 版も渡す（無ければ hdrImage = nil）。
+        guard let loaded = GainMapImageLoader.load(url: URL(fileURLWithPath: path)) else {
             NSLog("JPSOpenImage: 画像を読めませんでした: %@", path)
             return
         }
-        showResult(CaptureResult(image: image, scale: scale > 0 ? scale : 2))
+        showResult(CaptureResult(
+            image: loaded.sdr, scale: scale > 0 ? scale : 2, hdrImage: loaded.hdr))
     }
     #endif
 

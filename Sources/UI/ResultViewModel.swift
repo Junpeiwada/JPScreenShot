@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // 結果ウィンドウの状態管理。
 //
@@ -27,6 +28,16 @@ final class ResultViewModel {
     /// 注釈編集の状態（注釈・選択・取り消し・現在のツール）。
     /// ウィンドウを閉じるときに `tearDown()` で解放する。
     let editor: AnnotationEditor
+
+    /// 表示中のダイナミックレンジ。真実のソースは `editor.dynamicRange`（下敷き画像・加工
+    /// キャッシュ・キャンバスの表示がすべてそれに従う）。HDR 版が無いと `.hdr` にはできない。
+    var dynamicRange: ImageDynamicRange {
+        get { editor.dynamicRange }
+        set { editor.dynamicRange = newValue }
+    }
+
+    /// HDR 版があり、切替が有効か。
+    var hasHDR: Bool { editor.hasHDR }
 
     /// OCR テキスト。編集可能（4.3）。段階 5 で認識結果を流し込む。
     var text: String = ""
@@ -107,8 +118,11 @@ final class ResultViewModel {
 
     init(capture: CaptureResult) {
         self.capture = capture
-        self.editor = AnnotationEditor(base: capture.image, scale: capture.scale)
+        self.editor = AnnotationEditor(
+            base: capture.image, scale: capture.scale, hdrBase: capture.hdrImage)
         self.mode = Settings.shared.recognitionMode
+        // HDR 版があれば既定は HDR（撮ったままの明るさで見せる）。無ければ .sdr 固定。
+        if editor.hasHDR { editor.dynamicRange = .hdr }
     }
 
     // MARK: - OCR
@@ -179,21 +193,41 @@ final class ResultViewModel {
 
     // MARK: - コピー
 
-    /// 画像をクリップボードへ（CPY-01、PNG 形式）。
+    /// 画像をクリップボードへ（CPY-01）。
+    ///
+    /// - SDR 表示中: 従来どおり PNG と TIFF の両方（貼り付け先の対応が広い）。
+    /// - HDR 表示中: ゲインマップ付き JPEG **だけ**を `public.jpeg` で載せる。ゲインマップ付き JPEG は
+    ///   それ自体が普通の JPEG なので、ゲインマップを解さないアプリには SDR として、解するアプリには
+    ///   HDR として貼られる。形式を同居させると X に貼れなかった（HDRForge 知見-GUI「画像をコピー」）。
     func copyImage() {
-        guard let exported = exportImage(), let data = pngData(of: exported) else {
-            showFeedback("画像を変換できませんでした")
-            return
+        guard beginExporting() else { return }
+        let range = dynamicRange
+        Task { @MainActor in
+            defer { isExporting = false }
+            do {
+                guard let (sdr, hdr) = flattenedImages(for: range) else {
+                    showFeedback("画像を変換できませんでした")
+                    return
+                }
+                let pasteboard = NSPasteboard.general
+                switch range {
+                case .hdr:
+                    let jpeg = try await Self.encode(format: .jpeg, range: .hdr, sdr: sdr, hdr: hdr)
+                    pasteboard.clearContents()
+                    pasteboard.setData(jpeg, forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier))
+                case .sdr:
+                    let (png, tiff) = try await Self.encodePNGAndTIFF(sdr)
+                    pasteboard.clearContents()
+                    pasteboard.setData(png, forType: .png)
+                    if let tiff { pasteboard.setData(tiff, forType: .tiff) }
+                }
+                showFeedback(range == .hdr ? "HDR 画像をコピーしました" : "画像をコピーしました")
+                closeIfNeeded()
+            } catch {
+                // 黙って SDR に落とさない（P4-7）。
+                showFeedback("コピーできませんでした: \(error.localizedDescription)")
+            }
         }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        // PNG と TIFF の両方を載せると貼り付け先の対応が広い。
-        pasteboard.setData(data, forType: .png)
-        if let tiff = NSBitmapImageRep(cgImage: exported).tiffRepresentation {
-            pasteboard.setData(tiff, forType: .tiff)
-        }
-        showFeedback("画像をコピーしました")
-        closeIfNeeded()
     }
 
     /// テキストをクリップボードへ（CPY-02、編集後の内容）。
@@ -212,24 +246,65 @@ final class ResultViewModel {
 
     // MARK: - 保存
 
-    /// デスクトップへ PNG 保存（SAV-01/02/03）。
+    /// 選んだ保存形式。直前の選択を覚える（Settings.exportFormat のコメント参照）。
+    /// 複製せず Settings を直接読み書きする（actualSize と同じ理由）。
+    var exportFormat: ImageExporter.Format {
+        get { Settings.shared.exportFormat }
+        set { Settings.shared.exportFormat = newValue }
+    }
+
+    /// 書き出し中か。二重実行を防ぎ、ボタンを無効にするのに使う。
+    private(set) var isExporting = false
+
+    /// 保存先へ、選んだ形式 × 表示中のダイナミックレンジで保存する（SAV-01/02/03）。
+    ///
+    /// 重い処理（10bit HEIC のエンコード・ゲインマップ生成は 4K 級で数百 ms〜数秒）はメインを止めない
+    /// よう `Task.detached` に出す。注釈の焼き込み（CGContext 描画・MainActor 隔離）だけはメインで行う。
     func save() {
-        guard let exported = exportImage(), let data = pngData(of: exported) else {
-            showFeedback("画像を変換できませんでした")
-            return
-        }
-        do {
-            let url = try uniqueSaveURL()
-            try data.write(to: url)
-            showFeedback("保存しました: \(url.lastPathComponent)")
-        } catch {
-            // SAV-03: 黙って失敗しない。
-            presentSaveError(error)
+        guard beginExporting() else { return }
+        let format = exportFormat
+        let range = dynamicRange
+        // ファイル名の時刻は押した瞬間のもの。エンコード（数秒かかり得る）の後に取ると、
+        // 押した時刻とずれ、連続して押した保存の順序も入れ替わり得る。
+        let savedAt = Date()
+        Task { @MainActor in
+            defer { isExporting = false }
+            guard let (sdr, hdr) = flattenedImages(for: range) else {
+                showFeedback("画像を変換できませんでした")
+                return
+            }
+            do {
+                let data = try await Self.encode(format: format, range: range, sdr: sdr, hdr: hdr)
+                let url = try writeUniquely(data, fileExtension: format.fileExtension, at: savedAt)
+                showFeedback("保存しました: \(url.lastPathComponent)")
+            } catch {
+                // SAV-03: 黙って失敗しない。書き出しの失敗（カーネル・ゲインマップ検算など）も
+                // 同じ経路で伝え、SDR へ黙って落とさない（P4-7）。
+                presentSaveError(error)
+            }
         }
     }
 
-    /// SAV-02: `JPScreenShot_YYYY-MM-DD_HHmmss.png`。既存を上書きしない。
-    private func uniqueSaveURL() throws -> URL {
+    /// 書き出しの開始を宣言する。実行中なら false を返し、押したのに何も起きない状態を避けるため
+    /// 理由を伝える。
+    ///
+    /// フラグは Task を作る**前**に同期で立てる。Task の中で立てると、Task が走り出すまでの間に
+    /// もう一度ボタンが押されて二重に走る（ショートカットの連打）。解除は呼び出し側の Task で `defer`。
+    private func beginExporting() -> Bool {
+        guard !isExporting else {
+            showFeedback("書き出し中です")
+            return false
+        }
+        isExporting = true
+        return true
+    }
+
+    /// SAV-02: `JPScreenShot_YYYY-MM-DD_HHmmss.<拡張子>`。既存を上書きしない。
+    ///
+    /// 存在確認してから書くと、確認と書き込みの間に同名ファイルができたとき上書きする。
+    /// `.withoutOverwriting` で「無いときだけ作る」を書き込み側に任せ、既存で失敗したら
+    /// 連番を進めて再試行する。
+    private func writeUniquely(_ data: Data, fileExtension: String, at date: Date) throws -> URL {
         let directory = Settings.shared.saveDirectory
 
         // 保存先が消えている場合（設定で選んだフォルダを後から削除した、
@@ -243,18 +318,22 @@ final class ResultViewModel {
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        let stamp = formatter.string(from: Date())
-        let base = "JPScreenShot_\(stamp)"
+        let base = "JPScreenShot_\(formatter.string(from: date))"
 
-        let fm = FileManager.default
-        var candidate = directory.appending(path: "\(base).png")
-        // 同一秒に 2 回保存した場合は連番を付ける（SAV-02）。
-        var index = 2
-        while fm.fileExists(atPath: candidate.path) {
-            candidate = directory.appending(path: "\(base)_\(index).png")
-            index += 1
+        // 同一秒に 2 回保存した場合は連番を付ける（SAV-02）。拡張子ごとに数える。
+        var index = 1
+        while true {
+            let name = index == 1 ? "\(base).\(fileExtension)" : "\(base)_\(index).\(fileExtension)"
+            let candidate = directory.appending(path: name)
+            do {
+                try data.write(to: candidate, options: .withoutOverwriting)
+                return candidate
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                index += 1
+                // 無限ループ防止（現実には起きない上限）。
+                if index > 10_000 { throw error }
+            }
         }
-        return candidate
     }
 
     private func presentSaveError(_ error: Error) {
@@ -274,18 +353,41 @@ final class ResultViewModel {
     }
 
     /// コピー・保存する画像。注釈を焼き込んだもの（0 件なら元画像そのまま）。
+    /// 表示中のダイナミックレンジが HDR なら HDR 版（ゲインマップの高い側）も作る。
     ///
     /// OCR は `image`（元画像）のまま。注釈の線や文字を認識結果に混ぜないため。
-    private func exportImage() -> CGImage? {
+    /// 注釈は SDR の白で描かれるので、SDR 版と HDR 版の差（＝ゲイン）は元画像の明部だけに出る。
+    private func flattenedImages(for range: ImageDynamicRange) -> (sdr: CGImage, hdr: CGImage?)? {
         // 入力途中のテキストも含めて書き出す（ボタンはフォーカスを奪わないので、
         // ここで明示的に確定する）。
         editor.finishTextEditing()
-        return AnnotationRenderer.renderFlattened(
-            base: image, scale: capture.scale, annotations: editor.document.annotations)
+        let annotations = editor.document.annotations
+        guard let sdr = AnnotationRenderer.renderFlattened(
+            base: image, scale: capture.scale, annotations: annotations)
+        else { return nil }
+        guard range == .hdr else { return (sdr, nil) }
+        guard let hdrBase = editor.hdrImage,
+              let hdr = AnnotationRenderer.renderFlattened(
+                  base: hdrBase, scale: capture.scale, annotations: annotations)
+        else { return nil }
+        return (sdr, hdr)
     }
 
-    private func pngData(of image: CGImage) -> Data? {
-        NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+    /// 書き出しをメインスレッドの外で行う（ImageExporter は状態を持たず、CGImage は Sendable）。
+    private nonisolated static func encode(
+        format: ImageExporter.Format, range: ImageDynamicRange, sdr: CGImage, hdr: CGImage?
+    ) async throws -> Data {
+        try await Task.detached(priority: .userInitiated) {
+            try ImageExporter.export(format: format, dynamicRange: range, sdr: sdr, hdr: hdr)
+        }.value
+    }
+
+    /// SDR コピー用。PNG と TIFF を外で作る。
+    private nonisolated static func encodePNGAndTIFF(_ image: CGImage) async throws -> (Data, Data?) {
+        try await Task.detached(priority: .userInitiated) {
+            let png = try ImageExporter.export(format: .png, dynamicRange: .sdr, sdr: image, hdr: nil)
+            return (png, NSBitmapImageRep(cgImage: image).tiffRepresentation)
+        }.value
     }
 
     private func showFeedback(_ message: String) {

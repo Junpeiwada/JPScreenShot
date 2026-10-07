@@ -72,3 +72,8 @@ Tools/release.sh 0.1.0        # バージョン更新 → コミット → タ�
 - **⌘Z は SwiftUI の `.keyboardShortcut` にしない。** メインメニューの `undo:` / `redo:` を First Responder（キャンバスか OCR テキスト欄）に届けて分ける。`.keyboardShortcut("z")` だと OCR 欄の取り消しを奪う
 - **`Esc` は「閉じる」ボタンの `.cancelAction` と取り合う。** テキスト編集中・キャンバスで選択ありのときは外す（`AnnotationKeyboard.closeButtonOwnsEscape`）
 - **画面収録の権限なしで結果ウィンドウを見る**: Debug ビルドに `-JPSOpenImage <PNG のパス>`（任意で `-JPSOpenImageScale 2`）を渡す
+- **HDR 表示は PQ・RGBA16・`calculateHDRStats: true` で焼く（`HDRDisplayBaker`）。** レイヤーには `preferredDynamicRange = .high` と `toneMapMode = .never` を付ける。拡張 sRGB のままだと他アプリの EDR に相乗りして光って見えるだけで、窓構成が変わると SDR に落ちる
+- **HDR 版かどうかは輝度で判定する（`HDRAvailability`）。** 成分の最大値で見ると、Display P3 の鮮やかな色（拡張 sRGB で 1 超になる）を HDR と誤判定する
+- **ゲインマップ HEIC は `ColorGainMap`（Metal カーネル）で 3ch を自作する。** カーネルは `[[stitchable]]` なので `-fcikernel` 系のフラグは不要（付けると読めない）。ゲイン上限は画像ごとに実測し、安全上限は 16 倍。**offset は 1/64**（ベースが 8bit のため。1e-5 だと暗部が 0 に丸められ `measureMaxLog2` が上限 4.0 に張り付く）。CI には Metal Toolchain の導入が要る（release.yml）
+- **`.bothSDRAndHDR` は SDR/HDR 両方に同じ HDR 画像を返す（実測 2026-10-07）。** SDR 版は `SDRConversion` で自前生成する（1.0 超だけ色相保持で切り詰め。`CIToneMapHeadroom` は UI の白を落とすので使わない）。切り詰めは出力色空間（ディスプレイ ICC）の拡張リニア版で行い、線形化できない空間では作業空間（リニア P3）に落とす。`makeSDR` は失敗理由を `SDRConversionError`（kernelUnavailable / renderFailed）で投げ、撮影エラーとして利用者へ伝える（単純クランプに黙って落とさない）。ディスプレイ色空間は `supportsOutput && model == .rgb` でなければ Display P3 へフォールバック
+- **HDR のコピーはゲインマップ JPEG だけ。** 形式を同居させると X に貼れない。書き出し失敗は SDR に黙って落とさず、ユーザーに伝える

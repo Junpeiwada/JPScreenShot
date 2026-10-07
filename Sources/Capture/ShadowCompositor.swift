@@ -59,15 +59,18 @@ enum ShadowCompositor {
         guard width > 0, height > 0 else { return image }
 
         // 透明背景を保つため RGBA。貼り付け先が白でも黒でも馴染む。
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
+        //
+        // ★合成先の形式は元画像に合わせる。
+        // HDR 版（拡張 sRGB・16bit float）を 8bit の DeviceRGB に描くと、1.0 超の
+        // 明部がすべて 1.0 に潰れて HDR でなくなる。HDR 入力のときだけ
+        // 拡張 sRGB の 16bit float で合成し、1.0 超をそのまま保つ。
+        // SDR は従来どおり 8bit（メモリと速度のため。16bit にしても得るものが無い）。
+        //
+        // SDR 側の色空間も元画像のものを引き継ぐ（DeviceRGB だと P3 などのタグが落ちる）。
+        guard let context = HDRPixelFormat.makeContext(
+            width: width, height: height, hdr: HDRPixelFormat.isHDR(image),
+            sdrColorSpace: HDRPixelFormat.sdrColorSpace(for: image))
+        else {
             return image
         }
 

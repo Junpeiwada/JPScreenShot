@@ -3,6 +3,12 @@ import CoreGraphics
 import Foundation
 import Observation
 
+/// 表示・書き出しの下敷きにする画像の種類（SDR 版か HDR 版か）。
+enum ImageDynamicRange: Sendable {
+    case sdr
+    case hdr
+}
+
 // 結果ウィンドウ 1 枚分の注釈編集の状態。
 //
 // 注釈の配列・選択・取り消し（AnnotationDocument）、ぼかしのキャッシュ
@@ -14,8 +20,54 @@ import Observation
 final class AnnotationEditor {
 
     let document = AnnotationDocument()
-    /// ウィンドウごとに 1 つ。元画像から範囲を加工してキャッシュする。
-    let redaction: RedactionRenderer
+
+    /// SDR 版・HDR 版それぞれの加工キャッシュ。ウィンドウごとに最大 2 つ。
+    ///
+    /// レンダラは「ベース画像ごとのインスタンス」で、キャッシュは自分のベースから作った画像だけを
+    /// 持つ。SDR と HDR で 1 つを使い回すと 8bit と 16bit float が混ざるので、2 つ持って
+    /// `dynamicRange` で選ぶ。切り替えても注釈（`document`）は同じものを共有するので、
+    /// 位置・見た目は変わらない（両版は同じピクセル寸法）。
+    ///
+    /// HDR 側は初めて必要になったときに作る（遅延生成）。HDR 版がある撮影は既定が HDR なので、
+    /// 実際には結果画面を開いてすぐ作られる。HDR 版が無い撮影（SDR のみの環境）では作らず、
+    /// Retina の 16bit float 用の CIContext とキャッシュを確保しない。
+    @ObservationIgnored private let sdrRedaction: RedactionRenderer
+    @ObservationIgnored private var hdrRedactionStorage: RedactionRenderer?
+    /// HDR 版の元画像（寸法が SDR と一致したときだけ持つ）。`hdrRedactionStorage` の元。
+    @ObservationIgnored private let hdrBase: CGImage?
+    @ObservationIgnored private let scale: CGFloat
+
+    /// いま下敷きにしている版。フェーズ3の SDR/HDR 切替が書き換える。
+    /// HDR 版が無いのに `.hdr` にはできない（`.sdr` のまま）。
+    var dynamicRange: ImageDynamicRange = .sdr {
+        didSet { if dynamicRange == .hdr, hdrRedaction == nil { dynamicRange = .sdr } }
+    }
+
+    /// HDR 版の加工レンダラ。初回アクセスで作る。HDR 版が無ければ nil。
+    private var hdrRedaction: RedactionRenderer? {
+        if hdrRedactionStorage == nil, let hdrBase {
+            hdrRedactionStorage = RedactionRenderer(base: hdrBase, scale: scale)
+        }
+        return hdrRedactionStorage
+    }
+
+    /// 両版のキャッシュから、`ids` に含まれない注釈ぶんを捨てる。
+    /// 表示中でない版も掃除しないと、切替後に消えた注釈のキャッシュが残る。
+    func pruneRedactions(keeping ids: Set<UUID>) {
+        sdrRedaction.prune(keeping: ids)
+        hdrRedactionStorage?.prune(keeping: ids)
+    }
+
+    /// HDR 版の下敷きがあるか。
+    var hasHDR: Bool { hdrBase != nil }
+
+    /// HDR 版の元画像（寸法が SDR と一致したときだけ非 nil）。表示用。
+    var hdrImage: CGImage? { hdrBase }
+
+    /// いまの版の加工レンダラ。キャンバスの描画は毎回これを引く（切替で差し替わる）。
+    var redaction: RedactionRenderer {
+        dynamicRange == .hdr ? (hdrRedaction ?? sdrRedaction) : sdrRedaction
+    }
 
     /// 現在のツール。既定は選択（撮ってすぐコピーする今までの使い方を変えない）。
     var tool: AnnotationTool = .select
@@ -51,9 +103,22 @@ final class AnnotationEditor {
         let date: Date
     }
 
-    /// - Parameter styleStore: 最後のスタイルの保存先。既定は設定。
-    init(base: CGImage, scale: CGFloat, styleStore: AnnotationStyleStore? = nil) {
-        self.redaction = RedactionRenderer(base: base, scale: scale)
+    /// - Parameters:
+    ///   - base: SDR 版の元画像。
+    ///   - hdrBase: HDR 版の元画像。`base` と同じピクセル寸法のときだけ使う
+    ///     （寸法が違うと加工範囲がずれるので、無視して SDR のみにする）。
+    ///   - styleStore: 最後のスタイルの保存先。既定は設定。
+    init(
+        base: CGImage, scale: CGFloat, hdrBase: CGImage? = nil,
+        styleStore: AnnotationStyleStore? = nil
+    ) {
+        self.sdrRedaction = RedactionRenderer(base: base, scale: scale)
+        self.scale = scale
+        if let hdrBase, hdrBase.width == base.width, hdrBase.height == base.height {
+            self.hdrBase = hdrBase
+        } else {
+            self.hdrBase = nil
+        }
         let store = styleStore ?? Settings.shared.annotationStyleStore
         self.styleStore = store
         // 起動時に全種類ぶん読んで保持する。新規作成のドラッグ中に毎回 JSON を
@@ -79,7 +144,8 @@ final class AnnotationEditor {
         flushStyles()
         dismissTransientUI()
         document.removeAll()
-        redaction.removeAllCachedImages()  // CIContext のキャッシュも捨てる
+        sdrRedaction.removeAllCachedImages()  // CIContext のキャッシュも捨てる
+        hdrRedactionStorage?.removeAllCachedImages()
         textEditingFinisher = nil
         transientUIDismisser = nil
         canvasFocuser = nil

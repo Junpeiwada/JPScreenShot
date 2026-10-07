@@ -33,6 +33,9 @@ struct ResultView: View {
     @State private var dragStartHeight: CGFloat?
     /// ウィンドウ全体の高さ（テキスト欄の上限の計算用）。
     @State private var containerHeight: CGFloat = 0
+    /// ボタンバーの狭い版を、ボタンが最も多い状態で並べたときの幅（実測。余白は含まない）。
+    /// ウィンドウの最小幅をこれに合わせ、どの状態でもボタンが切れないようにする。
+    @State private var compactBarWidth: CGFloat = 0
 
     private static let minTextPaneHeight: CGFloat = 80
     /// 画像欄の最小高さ。
@@ -81,9 +84,12 @@ struct ResultView: View {
             Divider()
             buttonBar
         }
-        // 幅はツールレールの分を足す（ResultWindow の初期幅と同じ規則）。
+        // 幅は「ボタンバーの狭い版が収まる幅」と「480 + ツールレール」の大きいほう。
+        // 以前は 480 + レールの固定値で、SDR/HDR・保存形式のセグメントを足したら
+        // ボタンバーが収まらなくなった（ViewThatFits は収まらない最後の候補をそのまま出し、
+        // 右端の「等倍」「閉じる」が切れる）。目算の定数ではなく実測で決める。
         // 高さの最小は従来どおり。レールは画像欄が低いときは縦スクロールする。
-        .frame(minWidth: 480 + ToolRail.totalWidth, minHeight: 360)
+        .frame(minWidth: minimumWidth, minHeight: 360)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { containerHeight = $0 }
         .overlay(alignment: .top) {
             if let feedback = model.feedback {
@@ -216,7 +222,8 @@ struct ResultView: View {
         }
         // ScrollView の中ではビューのサイズを固定する。
         return AnnotationCanvas(
-            editor: model.editor, image: model.image, pointSize: model.pointSize
+            editor: model.editor, image: model.image, pointSize: model.pointSize,
+            hdrImage: model.editor.hdrImage
         )
         .frame(width: size.width, height: size.height)
     }
@@ -348,6 +355,25 @@ struct ResultView: View {
 
     // MARK: - ボタン
 
+    /// ウィンドウの最小幅。ボタンバーの狭い版（実測）に左右の余白を足した幅を下回らない。
+    private var minimumWidth: CGFloat {
+        max(480 + ToolRail.totalWidth, ceil(compactBarWidth) + Self.barHorizontalPadding * 2)
+    }
+
+    /// 最小幅を決めるための、見えない狭い版のボタンバー。
+    ///
+    /// 「テキストをコピー」は OCR を始めるまで出ないが、ここでは常に出した状態で測る。
+    /// 表示中の状態で測ると OCR 開始のたびに最小幅が伸び、ウィンドウの幅が勝手に変わるため。
+    /// `.fixedSize()` で理想の幅のまま測る（親の幅に合わせて縮んだ値を拾わない）。
+    private var barWidthProbe: some View {
+        buttonBarContent(compact: true, showsTextCopy: true)
+            .fixedSize()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { compactBarWidth = $0 }
+            .hidden()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
     /// ボタンバー。幅が足りないときはラベルを省略せず、アイコンだけの狭い版に切り替える
     /// （`ViewThatFits`）。ボタンは `.fixedSize()` で、文字が途中で切れないようにする。
     private var buttonBar: some View {
@@ -359,6 +385,7 @@ struct ResultView: View {
         .padding(.vertical, Self.barVerticalPadding)
         .background(.bar)
         .background { shortcutButtons }
+        .background(alignment: .leading) { barWidthProbe }
     }
 
     /// 文字つき（広い版）かアイコンのみ（狭い版）のボタン。
@@ -379,7 +406,40 @@ struct ResultView: View {
         .fixedSize()
     }
 
-    private func buttonBarContent(compact: Bool) -> some View {
+    /// SDR/HDR の切替。HDR 版が無いときは無効にして理由を出す。
+    private var dynamicRangePicker: some View {
+        Picker("表示", selection: $model.dynamicRange) {
+            Text("SDR").tag(ImageDynamicRange.sdr)
+            Text("HDR").tag(ImageDynamicRange.hdr)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .disabled(!model.hasHDR)
+        .help(model.hasHDR
+            ? "SDR と HDR の表示を切り替えます。コピー・保存も選んだほうになります。"
+            : "この画面・撮影内容には HDR の明るさがありません")
+        .accessibilityLabel("ダイナミックレンジ")
+    }
+
+    /// 保存形式（HEIC / PNG / JPG）。保存は「この形式 × 表示中のダイナミックレンジ」。
+    /// コピーには効かない（HDR はゲインマップ JPEG、SDR は PNG＋TIFF 固定）。
+    private var exportFormatPicker: some View {
+        Picker("保存形式", selection: $model.exportFormat) {
+            ForEach(ImageExporter.Format.allCases, id: \.self) { format in
+                Text(format.label).tag(format)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help("保存する形式。HDR 表示中は、HEIC・JPG はゲインマップ付き、PNG は 16bit PQ で保存します。")
+        .accessibilityLabel("保存形式")
+    }
+
+    /// - Parameter showsTextCopy: 「テキストをコピー」を出すか。既定は OCR を始めたら出す。
+    ///   最小幅の計測（`barWidthProbe`）だけが常に true で呼ぶ。
+    private func buttonBarContent(compact: Bool, showsTextCopy: Bool? = nil) -> some View {
         HStack(spacing: 8) {
             // CAP-09: 結果を見ながら続けて撮る。選択中は結果ウィンドウを隠す。
             // 赤の塗りつぶし・白文字で目立たせる（ユーザー要望）。HIG では赤は破壊的操作の
@@ -395,16 +455,20 @@ struct ResultView: View {
 
             Divider().frame(height: 16)
 
+            dynamicRangePicker
+            exportFormatPicker
+
             barButton(
                 "画像をコピー", systemImage: "photo.on.rectangle", compact: compact,
                 help: "画像をコピー（⇧⌘C）"
             ) { model.copyImage() }
+            .disabled(model.isExporting)
 
             // Cmd+C は割り当てない。TextEditor で一部を選択して
             // コピーする操作を奪ってしまう（4.3 で誤認識をその場で直して
             // 部分的にコピーする使い方を想定している）。
             // OCR を始めるまではコピーするテキストが無いので出さない。
-            if model.hasStartedRecognition {
+            if showsTextCopy ?? model.hasStartedRecognition {
                 barButton(
                     "テキストをコピー", systemImage: "doc.on.clipboard", compact: compact,
                     help: "テキストをコピー（⌥⌘C）"
@@ -416,6 +480,7 @@ struct ResultView: View {
                 "保存", systemImage: "square.and.arrow.down", compact: compact,
                 help: "保存（⌘S）"
             ) { model.save() }
+            .disabled(model.isExporting)
 
             Spacer(minLength: 0)
 

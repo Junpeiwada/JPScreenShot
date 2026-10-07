@@ -52,6 +52,9 @@ targets:
     type: application
     platform: macOS
     sources:
+      # Sources/Export/Kernels/*.metal（Core Image のカーネル）は Resources/default.metallib に
+      # ビルドされる（ゲインマップ生成用。MetalKernelLibrary が読む）。カーネルは [[stitchable]] なので
+      # -fcikernel 系のフラグは不要（付けると逆に読めない）。
       - path: Sources
     dependencies:
       - package: Sparkle

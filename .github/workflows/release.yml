@@ -53,6 +53,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Metal Toolchain を導入
+        # Sources/Export/Kernels/*.metal をビルド対象にしたため、Xcode 26 以降は Metal Toolchain が
+        # 必要（無いと metal コンパイラが見つからずビルドが失敗する）。導入済みなら何もしない。
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: XcodeGen を導入
         run: brew install xcodegen
 

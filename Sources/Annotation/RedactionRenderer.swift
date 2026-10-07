@@ -40,8 +40,15 @@ final class RedactionRenderer {
     /// 注釈 ID ごとの最新 1 件。
     private var cache: [UUID: (key: Key, image: CGImage)] = [:]
 
+    /// 元画像が HDR（16bit float・拡張 sRGB）か。
+    /// HDR のときは加工も float で行い、1.0 超を保つ（8bit 経由だと 1.0 に潰れる）。
+    /// キャッシュの SDR/HDR 混在は、このレンダラが**ベース画像ごとのインスタンス**で
+    /// `isHDR` がインスタンス固定であることで防ぐ（SDR 用・HDR 用は別インスタンス）。
+    let isHDR: Bool
+
     /// 加工画像の色空間。元画像が RGB 以外（グレースケール・CMYK など）なら sRGB。
     /// RGB 以外ではビットマップを作れず、加工に失敗して範囲が素通しになるため。
+    /// HDR のときは拡張 sRGB。
     private let outputColorSpace: CGColorSpace
 
     /// - Parameters:
@@ -51,10 +58,11 @@ final class RedactionRenderer {
         self.base = base
         self.scale = scale > 0 ? scale : 1
         self.ciContext = CIContext()
+        let hdr = HDRPixelFormat.isHDR(base)
+        self.isHDR = hdr
         self.outputColorSpace =
-            base.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
-            ?? CGColorSpace(name: CGColorSpace.sRGB)
-            ?? CGColorSpaceCreateDeviceRGB()
+            (hdr ? HDRPixelFormat.hdrColorSpace : nil)
+            ?? HDRPixelFormat.sdrColorSpace(for: base)
     }
 
     /// キャッシュしている画像の数（テスト・確認用）。
@@ -162,17 +170,15 @@ final class RedactionRenderer {
                 "CIGaussianBlur", parameters: [kCIInputRadiusKey: amount])
         }
         return ciContext.createCGImage(
-            output.cropped(to: ciRect), from: ciRect, format: .RGBA8, colorSpace: outputColorSpace)
+            output.cropped(to: ciRect), from: ciRect, format: isHDR ? .RGBAh : .RGBA8, colorSpace: outputColorSpace)
     }
 
     /// 楕円の外側を透明にする（楕円形のぼかし・モザイク）。
     private func maskedToEllipse(_ image: CGImage) -> CGImage? {
         guard
-            let context = CGContext(
-                data: nil, width: image.width, height: image.height,
-                bitsPerComponent: 8, bytesPerRow: 0,
-                space: outputColorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            let context = HDRPixelFormat.makeContext(
+                width: image.width, height: image.height, hdr: isHDR,
+                sdrColorSpace: outputColorSpace)
         else { return nil }
         let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         context.addEllipse(in: rect)
@@ -183,12 +189,12 @@ final class RedactionRenderer {
 
     /// 加工できなかったときの代わり。不透明な灰色（楕円なら外側は透明）。
     private func opaqueFill(width: Int, height: Int, ellipse: Bool) -> CGImage? {
+        // HDR 版の上に 8bit の灰を重ねても見た目は成立するが、層の形式を揃えるため
+        // HDR のときは float で作る（灰 0.5 は 1.0 を超えないので光らない）。
         guard
-            let context = CGContext(
-                data: nil, width: width, height: height,
-                bitsPerComponent: 8, bytesPerRow: 0,
-                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            let context = HDRPixelFormat.makeContext(
+                width: width, height: height, hdr: isHDR,
+                sdrColorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         else { return nil }
         let rect = CGRect(x: 0, y: 0, width: width, height: height)
         if ellipse {

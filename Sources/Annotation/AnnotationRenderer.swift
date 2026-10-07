@@ -19,6 +19,7 @@ enum AnnotationRenderer {
     // MARK: 書き出し
 
     /// 元画像に注釈を焼き込んだ画像を返す。ピクセル寸法は元画像と同じ。
+    /// 元画像が HDR（16bit float・拡張 sRGB）なら出力も 16bit float・拡張 sRGB で、1.0 超を保つ。
     ///
     /// - Parameters:
     ///   - base: 元画像。
@@ -29,14 +30,16 @@ enum AnnotationRenderer {
         guard !annotations.isEmpty else { return base }
         let scale = scale > 0 ? scale : 1
 
-        let colorSpace = base.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
-            ?? CGColorSpace(name: CGColorSpace.sRGB)
-            ?? CGColorSpaceCreateDeviceRGB()
+        // ★合成先の形式は元画像に合わせる（ShadowCompositor と同じ流儀）。
+        // HDR 版（拡張 sRGB・16bit float）を 8bit に描くと 1.0 超の明部が 1.0 に潰れる。
+        // HDR のときだけ拡張 sRGB の 16bit float で合成し、SDR は従来どおり 8bit・元の色空間。
+        // 注釈の色（NSColor → CGColor）は SDR の 0…1 の値のまま描く。拡張 sRGB に sRGB の色を
+        // 描いても値は 1.0 以下に収まるので、注釈の白は 1.0 のまま HDR の明部のようには光らない。
+        let hdr = HDRPixelFormat.isHDR(base)
+        let sdrColorSpace = HDRPixelFormat.sdrColorSpace(for: base)
         guard
-            let context = CGContext(
-                data: nil, width: base.width, height: base.height,
-                bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            let context = HDRPixelFormat.makeContext(
+                width: base.width, height: base.height, hdr: hdr, sdrColorSpace: sdrColorSpace)
         else { return nil }
 
         // 元画像はピクセル等倍で補間なしに置く（ぼやけと画素のずれを避ける）。

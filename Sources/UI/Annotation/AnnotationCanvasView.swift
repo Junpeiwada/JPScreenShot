@@ -22,9 +22,11 @@ struct AnnotationCanvas: NSViewRepresentable {
     let image: CGImage
     /// 画像のポイント寸法（`CaptureResult.pointSize`）。表示倍率の基準。
     let pointSize: CGSize
+    /// HDR 版の元画像（`editor.hdrImage`）。表示の切替は `editor.dynamicRange` に従う。
+    var hdrImage: CGImage?
 
     func makeNSView(context: Context) -> AnnotationCanvasView {
-        AnnotationCanvasView(editor: editor, image: image, pointSize: pointSize)
+        AnnotationCanvasView(editor: editor, image: image, hdrImage: hdrImage, pointSize: pointSize)
     }
 
     func updateNSView(_ nsView: AnnotationCanvasView, context: Context) {
@@ -117,7 +119,7 @@ final class AnnotationCanvasView: NSView, NSMenuItemValidation {
 
     // MARK: 初期化
 
-    init(editor: AnnotationEditor, image: CGImage, pointSize: CGSize) {
+    init(editor: AnnotationEditor, image: CGImage, hdrImage: CGImage? = nil, pointSize: CGSize) {
         self.editor = editor
         self.pointSize = pointSize
         super.init(frame: NSRect(origin: .zero, size: pointSize))
@@ -127,7 +129,10 @@ final class AnnotationCanvasView: NSView, NSMenuItemValidation {
         // 全画素を描き直さない。注釈の描画は `overlay` が受け持つ。
         baseView.frame = bounds
         baseView.autoresizingMask = [.width, .height]
-        baseView.setImage(image)
+        // HDR 表示用の画像が焼けなかったら、状態の側も SDR に戻す（表示と書き出しの版を揃える）。
+        baseView.onHDRBakeFailed = { [weak editor] in editor?.dynamicRange = .sdr }
+        baseView.setImage(image, hdr: hdrImage)
+        baseView.setDynamicRange(editor.dynamicRange)
         addSubview(baseView)
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
@@ -191,6 +196,7 @@ final class AnnotationCanvasView: NSView, NSMenuItemValidation {
             _ = editor.document.annotations
             _ = editor.document.selectedIDs
             _ = editor.tool
+            _ = editor.dynamicRange
         } onChange: { [weak self] in
             // onChange は変更の直前（willSet）に呼ばれるので、値が入ったあとに
             // 描き直せるよう 1 周遅らせる。
@@ -199,6 +205,9 @@ final class AnnotationCanvasView: NSView, NSMenuItemValidation {
     }
 
     private func modelDidChange() {
+        // SDR/HDR の切替。注釈・選択・表示倍率は触らず、下敷きと加工キャッシュだけ差し替わる
+        // （`invalidate()` で注釈側は新しい版の加工画像で描き直される）。
+        baseView.setDynamicRange(editor.dynamicRange)
         invalidate()
         // 無くなった注釈（削除・作成ドラッグの破棄・取り消し）のぼかしキャッシュを解放する。
         pruneRedactionCache()
@@ -220,7 +229,7 @@ final class AnnotationCanvasView: NSView, NSMenuItemValidation {
     func pruneRedactionCache() {
         var ids = Set(document.annotations.map(\.id))
         if let draft { ids.insert(draft.id) }
-        editor.redaction.prune(keeping: ids)
+        editor.pruneRedactions(keeping: ids)
     }
 
     // MARK: 再描画

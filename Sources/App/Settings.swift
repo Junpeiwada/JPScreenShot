@@ -7,6 +7,7 @@ import Foundation
 // - コピー後にウィンドウを閉じるか（CPY-04、既定は閉じない）
 // - 保存先（SAV-04、既定はデスクトップ）
 // - 画像を等倍で表示するか（結果ウィンドウのトグル状態）
+// - 最後に選んだ保存形式（HEIC / PNG / JPG）
 // - 注釈の種類ごとの最後のスタイル（AnnotationStyleStore 経由で JSON）
 //
 // @Observable にしているのは、設定ウィンドウを開いたまま
@@ -26,6 +27,7 @@ final class Settings {
         static let saveDirectory = "saveDirectory"
         static let includeWindowShadow = "includeWindowShadow"
         static let actualSize = "actualSize"
+        static let exportFormat = "exportFormat"
     }
 
     /// 直前に使った認識モード。既定は日本語（6.3）。
@@ -59,6 +61,16 @@ final class Settings {
     /// 書き戻し、次にキャプチャしたときも同じ表示で開く。
     var actualSize: Bool {
         didSet { defaults.set(actualSize, forKey: Key.actualSize) }
+    }
+
+    /// 最後に選んだ保存形式（実装計画-HDR P4-5）。既定は PNG（従来どおり）。
+    ///
+    /// 結果画面で「毎回選ぶ」方針だが、直前の選択は覚えておく。認識モード・等倍表示と同じ
+    /// 流儀で、続けて撮るたびに同じ形式を選び直す手間を省くため。設定画面には出さない
+    /// （選ぶ場所は結果画面のボタンバーだけ。選択肢は常に見えているので意図しない形式で
+    /// 保存してしまう心配は小さい）。
+    var exportFormat: ImageExporter.Format {
+        didSet { defaults.set(exportFormat.rawValue, forKey: Key.exportFormat) }
     }
 
     /// 種類ごとの「最後に使った注釈スタイル」の保存先（実装計画 P4-4）。
@@ -95,6 +107,8 @@ final class Settings {
         closeAfterCopy = defaults.bool(forKey: Key.closeAfterCopy)
         includeWindowShadow = defaults.bool(forKey: Key.includeWindowShadow)
         actualSize = defaults.bool(forKey: Key.actualSize)
+        exportFormat = defaults.string(forKey: Key.exportFormat)
+            .flatMap(ImageExporter.Format.init(rawValue:)) ?? .png
         if let path = defaults.string(forKey: Key.saveDirectory) {
             saveDirectory = URL(fileURLWithPath: path, isDirectory: true)
         } else {
