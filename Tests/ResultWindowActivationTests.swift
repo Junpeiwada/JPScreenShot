@@ -24,7 +24,7 @@ struct ResultWindowActivationTests {
     @Test("自アプリがアクティブなら呼び戻さずキャプチャへ進む")
     func 自アプリがアクティブ() {
         // アクティブな間は .floating で手前にいるので見失っていない。
-        // 環境設定ウィンドウがキーの場合もこちらに含まれる。
+        // 設定ウィンドウがキーの場合もこちらに含まれる。
         #expect(
             !ResultWindow.shouldBringToFront(
                 isVisible: true,

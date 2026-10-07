@@ -169,7 +169,7 @@ enum ScreenCaptureService {
     /// 指定したウィンドウ 1 つをキャプチャする（CAP-06 / CAP-07）。
     /// - Parameters:
     ///   - window: 対象ウィンドウ。
-    ///   - includeShadow: ドロップシャドウを付けるか（CAP-07、環境設定で選べる）。
+    ///   - includeShadow: ドロップシャドウを付けるか（CAP-07、設定で選べる）。
     /// - Returns: Retina 解像度を維持した画像と、その倍率。
     static func capture(
         window: SCWindow,

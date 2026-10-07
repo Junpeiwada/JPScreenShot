@@ -1,15 +1,15 @@
 import AppKit
 import SwiftUI
 
-// 環境設定（要求 4.1 / CAP-07 / CPY-04 / SAV-04）。
+// 設定（要求 4.1 / CAP-07 / CPY-04 / SAV-04）。
 //
 // 扱う設定は次の 4 つに絞る。
 // - 認識モードの既定（6.3「直前に使ったモードを記憶する」の確認・変更用）
 // - ウィンドウキャプチャに影を含めるか（CAP-07）
 // - コピー後にウィンドウを閉じるか（CPY-04）
-// - 画像の保存先（SAV-04「環境設定で変更できることが望ましい」）
+// - 画像の保存先（SAV-04「設定で変更できることが望ましい」）
 struct SettingsView: View {
-    // Settings を直接参照する。値を @State に複製すると、環境設定を
+    // Settings を直接参照する。値を @State に複製すると、設定を
     // 開いたままメニューバーからモードを変えたときに表示がずれる。
     @Bindable private var settings = Settings.shared
 
@@ -29,39 +29,38 @@ struct SettingsView: View {
             }
 
             Section("キャプチャ") {
-                Toggle("ウィンドウに影を付ける", isOn: $settings.includeWindowShadow)
-                Text("ウィンドウをクリックしてキャプチャしたときに、ドロップシャドウを付けます。画質は落ちません。オフにするとウィンドウの枠でぴったり切り取ります。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // 見出しと説明は Toggle のラベルに 2 つの Text で渡す（標準の説明文の形）。
+                Toggle(isOn: $settings.includeWindowShadow) {
+                    Text("ウィンドウに影を付ける")
+                    Text("ウィンドウをクリックしてキャプチャしたときに、ドロップシャドウを付けます。画質は落ちません。オフにするとウィンドウの枠でぴったり切り取ります。")
+                }
             }
 
             Section("結果ウィンドウ") {
-                Toggle("画像を等倍で表示する", isOn: $settings.actualSize)
-                Text("画面のピクセルをそのまま表示します。オフにするとウィンドウに合わせて縮小しますが、リサンプリングでぼやけます。結果ウィンドウの「等倍」チェックでも切り替えられ、そこでの選択がここに記憶されます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Toggle(isOn: $settings.actualSize) {
+                    Text("画像を等倍で表示する")
+                    Text("画面のピクセルをそのまま表示します。オフにするとウィンドウに合わせて縮小しますが、リサンプリングでぼやけます。結果ウィンドウの「等倍」チェックでも切り替えられ、そこでの選択がここに記憶されます。")
+                }
 
-                Toggle("コピーしたらウィンドウを閉じる", isOn: $settings.closeAfterCopy)
-                Text("オフのままなら、閉じるのは「閉じる」ボタンか Esc だけになります。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Toggle(isOn: $settings.closeAfterCopy) {
+                    Text("コピーしたらウィンドウを閉じる")
+                    Text("オフのままなら、閉じるのは「閉じる」ボタンか Esc だけになります。")
+                }
             }
 
             Section("保存") {
-                HStack {
-                    // 保存先はパスが長くなるので末尾を優先して見せる。
-                    Text(settings.saveDirectory.path)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("変更…") { chooseDirectory() }
-                    if settings.saveDirectory != Settings.desktopDirectory {
-                        Button("デスクトップに戻す") {
-                            settings.saveDirectory = Settings.desktopDirectory
+                LabeledContent("保存先") {
+                    HStack {
+                        // 保存先はパスが長くなるので末尾を優先して見せる。
+                        Text(settings.saveDirectory.path)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .foregroundStyle(.secondary)
+                        Button("変更…") { chooseDirectory() }
+                        if settings.saveDirectory != Settings.desktopDirectory {
+                            Button("デスクトップに戻す") {
+                                settings.saveDirectory = Settings.desktopDirectory
+                            }
                         }
                     }
                 }

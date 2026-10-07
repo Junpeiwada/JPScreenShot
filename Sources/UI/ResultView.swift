@@ -21,25 +21,59 @@ struct ResultView: View {
     /// ResultWindow の初期サイズ計算でもこの分を足す。
     static let imageMargin: CGFloat = 16
 
+    /// 下段のバー（OCR バー・モードバー・ボタンバー）と、重ねて出すバナーの余白。
+    /// 左端が揃うよう全部同じ値にする。
+    private static let barHorizontalPadding: CGFloat = 12
+    private static let barVerticalPadding: CGFloat = 8
+
+    /// テキスト欄の初期の高さ。OCR を始めたときにウィンドウを伸ばす量（ResultWindow）も同じ値にする。
+    static let defaultTextPaneHeight: CGFloat = 180
+    /// テキスト欄の高さ。
+    @State private var textPaneHeight: CGFloat = ResultView.defaultTextPaneHeight
+    @State private var dragStartHeight: CGFloat?
+    /// ウィンドウ全体の高さ（テキスト欄の上限の計算用）。
+    @State private var containerHeight: CGFloat = 0
+
+    private static let minTextPaneHeight: CGFloat = 80
+    /// 画像欄の最小高さ。
+    private static let minImagePaneHeight: CGFloat = 120
+    /// ボタンバー + 仕切りなどの固定の高さの目安。
+    private static let fixedChromeHeight: CGFloat = 60
+
+    /// テキスト欄の上限。画像欄の最小高さを残す（containerHeight 未計測の間は制限しない）。
+    private var maxTextPaneHeight: CGFloat {
+        guard containerHeight > 0 else { return .greatestFiniteMagnitude }
+        return max(
+            Self.minTextPaneHeight,
+            containerHeight - Self.minImagePaneHeight - Self.fixedChromeHeight)
+    }
+
     var body: some View {
         // ボタンバーは safeAreaInset ではなく VStack の兄弟として置く。
         //
-        // safeAreaInset は VSplitView 全体に対して余白を確保するが、
-        // 分割ペイン内の TextEditor にはその inset が伝わらないため、
-        // テキストの末尾がボタンバーの下に隠れて最後までスクロール
-        // できなくなっていた。実体のある領域として積む方が確実。
+        // safeAreaInset は下段（テキスト欄）の中の TextEditor にまで inset が
+        // 伝わらず、テキストの末尾がボタンバーの下に隠れて最後までスクロール
+        // できなくなっていた（VSplitView 時代の不具合）。実体のある領域として
+        // 積む方が確実なので、今の自前の仕切りでもこの構成を保つ。
         VStack(spacing: 0) {
-            if model.hasStartedRecognition {
-                VSplitView {
-                    imagePane
-                    textPane
-                }
+            // 画像欄（レール + キャンバス）は OCR の前後で**同じ位置・同じ構造**に置く。
+            // 下段だけを if で切り替える。画像欄を別の分岐（テキスト欄ありと無し）に
+            // 置くと、SwiftUI から見て別のビューになり、キャンバス（NSView）が作り直されて
+            // 入力途中のテキスト・ポップオーバー・フォーカスの状態が失われる。
+            imagePane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if model.hasStartedRecognition {
+                // テキスト欄。VSplitView は使わず、自前の仕切りで高さを変える
+                // （VSplitView だと画像欄が分岐ごと作り直される）。
+                splitHandle
+                // 高さは「希望」。ウィンドウを縮めたときは、画像欄の最小高さを保つため
+                // コンテナ高さから計算した上限へ収める（固定高さだと縮められなくなる）。
+                textPane
+                    .frame(height: min(textPaneHeight, maxTextPaneHeight))
             } else {
                 // OCR を始めるまではテキスト欄を 1 行のバーまで縮め、
                 // 画像に場所を譲る（OCR-01）。
-                imagePane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 collapsedTextBar
             }
@@ -47,7 +81,10 @@ struct ResultView: View {
             Divider()
             buttonBar
         }
-        .frame(minWidth: 480, minHeight: 360)
+        // 幅はツールレールの分を足す（ResultWindow の初期幅と同じ規則）。
+        // 高さの最小は従来どおり。レールは画像欄が低いときは縦スクロールする。
+        .frame(minWidth: 480 + ToolRail.totalWidth, minHeight: 360)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { containerHeight = $0 }
         .overlay(alignment: .top) {
             if let feedback = model.feedback {
                 feedbackBanner(feedback)
@@ -67,17 +104,68 @@ struct ResultView: View {
             .allowsHitTesting(false)
     }
 
+    /// 画像欄とテキスト欄の仕切り。細い線に、つかみやすい透明な帯を重ねる。
+    /// 上へ引くとテキスト欄が高くなる。
+    private var splitHandle: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(height: 9)
+                    .contentShape(Rectangle())
+                    .pointerStyle(.rowResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { value in
+                                let start = dragStartHeight ?? textPaneHeight
+                                dragStartHeight = start
+                                textPaneHeight = min(
+                                    max(start - value.translation.height, Self.minTextPaneHeight),
+                                    maxTextPaneHeight)
+                            }
+                            .onEnded { _ in dragStartHeight = nil })
+            }
+            // VoiceOver でも高さを変えられるようにする（ドラッグの代わり）。
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("テキスト欄の高さ")
+            .accessibilityValue("\(Int(min(textPaneHeight, maxTextPaneHeight))) ポイント")
+            .accessibilityAdjustableAction { direction in
+                let step: CGFloat = 24
+                let current = min(textPaneHeight, maxTextPaneHeight)
+                switch direction {
+                case .increment:
+                    textPaneHeight = min(current + step, maxTextPaneHeight)
+                case .decrement:
+                    textPaneHeight = max(current - step, Self.minTextPaneHeight)
+                @unknown default:
+                    break
+                }
+            }
+    }
+
     // MARK: - 画像
 
+    /// 左のツールレール + 右の画像（キャンバス）。
+    /// OCR バーとボタンバーは全幅のままなので、レールはこの欄の中だけに置く。
     private var imagePane: some View {
+        HStack(spacing: 0) {
+            ToolRail(editor: model.editor)
+            Divider()
+            canvasPane
+        }
+        .frame(minHeight: Self.minImagePaneHeight, idealHeight: 320)
+    }
+
+    private var canvasPane: some View {
         GeometryReader { geometry in
             ScrollView([.horizontal, .vertical]) {
                 imageContent(in: geometry.size)
                     .overlay {
                         // 線は画像の外側に描く。内側に描くと端の画素が隠れる。
+                        // マウスはキャンバスへ通す（描画・選択を邪魔しない）。
                         Rectangle()
                             .stroke(.black, lineWidth: Self.imageBorderWidth)
                             .padding(-Self.imageBorderWidth / 2)
+                            .allowsHitTesting(false)
                     }
                     .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
                     .padding(Self.imageMargin)
@@ -90,19 +178,21 @@ struct ResultView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background(.background.secondary)
-        .frame(minHeight: 120, idealHeight: 320)
+        // 実寸を測って伝える（初期サイズの見積もりの不足を、開いた直後に 1 回だけ補正する）。
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            model.onCanvasViewportChange?(size)
+        }
     }
 
-    @ViewBuilder
     private func imageContent(in available: CGSize) -> some View {
-        // scale にはキャプチャ時の倍率を渡す。
+        // 画像はキャンバス（AppKit の NSView）が描く。キャンバスは自分の幅と
+        // pointSize から表示倍率を求めるので、ここでは表示サイズだけを決める。
         //
-        // ここを 1.0 に固定すると「画像の 1 ピクセル = 1 ポイント」と
-        // 解釈されるため、Retina（2x）で撮った画像が画面の 2 倍の
-        // 大きさで表示されてしまう。実際の倍率を伝えることで、撮った
-        // 範囲が画面上で占めていたのと同じ大きさになる。
-        let image = Image(decorative: model.image, scale: model.imageScale)
-
+        // 画像の倍率はキャプチャ時のもの（pointSize = ピクセル ÷ scale）で扱う。
+        // ここを 1.0 に固定して「画像の 1 ピクセル = 1 ポイント」と解釈すると、
+        // Retina（2x）で撮った画像が画面の 2 倍の大きさで表示されてしまう。
+        // 実際の倍率を伝えることで、撮った範囲が画面上で占めていたのと同じ大きさになる。
+        let size: CGSize
         if model.actualSize {
             // 等倍 = 撮影時に画面で見えていたのと同じ大きさ。
             // 収まらない場合はスクロールで見る。
@@ -117,14 +207,16 @@ struct ResultView: View {
             // ピクセル 1:1 を優先すると、今度は 2x で撮った画像が 1x 画面で
             // 2 倍の大きさに引き伸ばされて表示されてしまう（この修正で直した
             // 元の不具合そのもの）。表示サイズの正しさを優先する。
-            image
+            size = model.pointSize
         } else {
-            let size = fittedSize(in: available)
-            image
-                .resizable()
-                .interpolation(.high)
-                .frame(width: size.width, height: size.height)
+            // 縮小表示。キャンバス側が .high 補間で描く。
+            size = fittedSize(in: available)
         }
+        // ScrollView の中ではビューのサイズを固定する。
+        return AnnotationCanvas(
+            editor: model.editor, image: model.image, pointSize: model.pointSize
+        )
+        .frame(width: size.width, height: size.height)
     }
 
     /// アスペクト比を保って収める。等倍より大きく拡大はしない（4.3）。
@@ -157,7 +249,6 @@ struct ResultView: View {
             Divider()
             textContent
         }
-        .frame(minHeight: 80, idealHeight: 180)
         .background(.background)
     }
 
@@ -171,13 +262,14 @@ struct ResultView: View {
                 model.startRecognition()
             }
             .keyboardShortcut("r", modifiers: .command)
+            .help("テキストを認識（⌘R）")
 
             modePicker
 
             Spacer()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Self.barHorizontalPadding)
+        .padding(.vertical, Self.barVerticalPadding)
         .background(.background)
     }
 
@@ -208,8 +300,8 @@ struct ResultView: View {
                 .foregroundStyle(.secondary)
                 .opacity(model.isRecognizing || model.lineCount == 0 ? 0 : 1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Self.barHorizontalPadding)
+        .padding(.vertical, Self.barVerticalPadding)
     }
 
     private var textContent: some View {
@@ -243,10 +335,9 @@ struct ResultView: View {
                     Text("テキストを認識中…")
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(.separator))
+                .padding(.horizontal, Self.barHorizontalPadding)
+                .padding(.vertical, Self.barVerticalPadding)
+                .glassEffect(in: Capsule())
                 .padding(.top, 8)
                 .allowsHitTesting(false)
             }
@@ -255,60 +346,180 @@ struct ResultView: View {
 
     // MARK: - ボタン
 
+    /// ボタンバー。幅が足りないときはラベルを省略せず、アイコンだけの狭い版に切り替える
+    /// （`ViewThatFits`）。ボタンは `.fixedSize()` で、文字が途中で切れないようにする。
     private var buttonBar: some View {
+        ViewThatFits(in: .horizontal) {
+            buttonBarContent(compact: false)
+            buttonBarContent(compact: true)
+        }
+        .padding(.horizontal, Self.barHorizontalPadding)
+        .padding(.vertical, Self.barVerticalPadding)
+        .background(.bar)
+        .background { shortcutButtons }
+    }
+
+    /// 文字つき（広い版）かアイコンのみ（狭い版）のボタン。
+    private func barButton(
+        _ title: String, systemImage: String, compact: Bool, showsIconWhenWide: Bool = false,
+        help: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            if compact {
+                Label(title, systemImage: systemImage).labelStyle(.iconOnly)
+            } else if showsIconWhenWide {
+                Label(title, systemImage: systemImage).labelStyle(.titleAndIcon)
+            } else {
+                Text(title)
+            }
+        }
+        .help(help)
+        .fixedSize()
+    }
+
+    private func buttonBarContent(compact: Bool) -> some View {
         HStack(spacing: 8) {
             // CAP-09: 結果を見ながら続けて撮る。選択中は結果ウィンドウを隠す。
-            Button("新規キャプチャ", systemImage: "plus.viewfinder") {
+            // 赤の塗りつぶし・白文字で目立たせる（ユーザー要望）。HIG では赤は破壊的操作の
+            // 色だが、新規キャプチャは前の注釈を確認なしに破棄する操作でもあるので
+            // 注意を引く色として許容する。
+            barButton(
+                "新規キャプチャ", systemImage: "plus.viewfinder", compact: compact,
+                showsIconWhenWide: true, help: "新規キャプチャ（⌘N）"
+            ) {
                 model.requestNewCapture?()
             }
-            .keyboardShortcut("n", modifiers: .command)
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .foregroundStyle(.white)
 
             Divider().frame(height: 16)
 
-            Button("画像をコピー") { model.copyImage() }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
+            barButton(
+                "画像をコピー", systemImage: "photo.on.rectangle", compact: compact,
+                help: "画像をコピー（⇧⌘C）"
+            ) { model.copyImage() }
 
             // Cmd+C は割り当てない。TextEditor で一部を選択して
             // コピーする操作を奪ってしまう（4.3 で誤認識をその場で直して
             // 部分的にコピーする使い方を想定している）。
             // OCR を始めるまではコピーするテキストが無いので出さない。
             if model.hasStartedRecognition {
-                Button("テキストをコピー") { model.copyText() }
-                    .keyboardShortcut("c", modifiers: [.command, .option])
-                    .disabled(!model.canCopyText)
+                barButton(
+                    "テキストをコピー", systemImage: "doc.on.clipboard", compact: compact,
+                    help: "テキストをコピー（⌥⌘C）"
+                ) { model.copyText() }
+                .disabled(!model.canCopyText)
             }
 
-            Button("保存") { model.save() }
-                .keyboardShortcut("s", modifiers: .command)
+            barButton(
+                "保存", systemImage: "square.and.arrow.down", compact: compact,
+                help: "保存（⌘S）"
+            ) { model.save() }
 
-            Spacer()
+            Spacer(minLength: 0)
+
+            // 注釈の取り消し・やり直し。ショートカットは付けない。⌘Z は
+            // メインメニュー経由で First Responder に届く（キャンバスと
+            // OCR テキスト欄で取り消しの対象が自然に分かれる）。
+            // SwiftUI の .keyboardShortcut("z") だと OCR テキスト欄の ⌘Z を奪う。
+            Button {
+                model.editor.finishTextEditing()
+                model.editor.document.undo()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .disabled(!model.editor.document.canUndo)
+            .help("注釈を取り消す（⌘Z）")
+            .accessibilityLabel("取り消し")
+            .fixedSize()
+
+            Button {
+                model.editor.finishTextEditing()
+                model.editor.document.redo()
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+            }
+            .disabled(!model.editor.document.canRedo)
+            .help("注釈をやり直す（⇧⌘Z）")
+            .accessibilityLabel("やり直し")
+            .fixedSize()
 
             // 等倍（画面と同じ大きさ）とウィンドウに合わせる表示の切り替え。
             // 縮小するとリサンプリングでぼやけるため既定は等倍。
             Toggle("等倍", isOn: $model.actualSize)
                 .toggleStyle(.checkbox)
                 .help("撮影時に画面で見えていたのと同じ大きさで表示します。オフにするとウィンドウに合わせて縮小します。")
+                .fixedSize()
 
             // 寸法は保存・コピーされる実データに合わせてピクセルで出す。
-            Text("\(Int(model.pixelSize.width)) × \(Int(model.pixelSize.height))")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+            // 狭い版では隠す（ラベルを省略するより、配置を変えて収める）。
+            if !compact {
+                Text("\(Int(model.pixelSize.width)) × \(Int(model.pixelSize.height))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
 
+            // Esc は段階的に使う: テキスト入力中は確定、キャンバスにフォーカスがあって
+            // 選択があれば選択解除、それ以外は閉じる。前 2 つのときは「閉じる」の
+            // ショートカットを外す（付けたままだと SwiftUI が先に受けてウィンドウが閉じ、
+            // 入力や選択解除より先に閉じてしまう）。OCR テキスト欄にフォーカスがあるときは
+            // 従来どおり Esc で閉じる。
+            // （Esc の割り当ては `shortcutButtons` 側。ここは表示用でショートカットは持たない。）
             Button("閉じる") { model.requestClose?() }
-                .keyboardShortcut(.cancelAction)
+                .help("閉じる（Esc）")
+                .fixedSize()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.bar)
+    }
+
+    /// キーボードショートカットを持つボタン（1 組だけ）。
+    ///
+    /// `ViewThatFits` の広い版・狭い版の両方に `.keyboardShortcut` を付けると二重登録になり、
+    /// ⌘S などが 2 回走るおそれがある。そのため表示用のボタン（`buttonBarContent`）には
+    /// ショートカットを付けず、ここに 1 組だけ置く。
+    ///
+    /// 見えなくするのは `.hidden()` ではなく「大きさ 0 ＋ opacity 0」にする。`.hidden()` は
+    /// ビューを階層から外す扱いになり、ショートカットが効かない場合があるため。
+    /// 階層には残り有効なので、ショートカットは普通に効く。マウス・VoiceOver には出さない。
+    private var shortcutButtons: some View {
+        ZStack {
+            Button("新規キャプチャ") { model.requestNewCapture?() }
+                .keyboardShortcut("n", modifiers: .command)
+            Button("画像をコピー") { model.copyImage() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+            if model.hasStartedRecognition {
+                Button("テキストをコピー") { model.copyText() }
+                    .keyboardShortcut("c", modifiers: [.command, .option])
+                    .disabled(!model.canCopyText)
+            }
+            Button("保存") { model.save() }
+                .keyboardShortcut("s", modifiers: .command)
+            // Esc は段階的に使う: テキスト入力中は確定、キャンバスにフォーカスがあって
+            // 選択があれば選択解除、それ以外は閉じる。前 2 つのときは「閉じる」の
+            // ショートカットを外す（付けたままだと SwiftUI が先に受けてウィンドウが閉じ、
+            // 入力や選択解除より先に閉じてしまう）。OCR テキスト欄にフォーカスがあるときは
+            // 従来どおり Esc で閉じる。
+            Button("閉じる") { model.requestClose?() }
+                .keyboardShortcut(
+                    AnnotationKeyboard.closeButtonOwnsEscape(
+                        isEditingText: model.editor.isEditingText,
+                        isCanvasFocused: model.editor.isCanvasFocused,
+                        hasSelection: !model.editor.document.selectedIDs.isEmpty)
+                        ? .cancelAction : nil)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func feedbackBanner(_ message: String) -> some View {
         Text(message)
             .font(.callout)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(.separator))
+            .padding(.horizontal, Self.barHorizontalPadding)
+            .padding(.vertical, Self.barVerticalPadding)
+            .glassEffect(in: Capsule())
             .padding(.top, 10)
             .transition(.opacity)
     }

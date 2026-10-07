@@ -24,6 +24,10 @@ final class ResultViewModel {
     /// 決め打ちすると 2x で撮った画像が 2 倍の大きさで表示されてしまう。
     var imageScale: CGFloat { capture.scale }
 
+    /// 注釈編集の状態（注釈・選択・取り消し・現在のツール）。
+    /// ウィンドウを閉じるときに `tearDown()` で解放する。
+    let editor: AnnotationEditor
+
     /// OCR テキスト。編集可能（4.3）。段階 5 で認識結果を流し込む。
     var text: String = ""
 
@@ -58,8 +62,8 @@ final class ResultViewModel {
     ///
     /// 選択は次回以降の既定として記憶する。
     ///
-    /// 値を複製せず Settings を直接読み書きする。環境設定にも同じ項目が
-    /// あるため、複製すると「環境設定で切り替えたのに開いている結果
+    /// 値を複製せず Settings を直接読み書きする。設定にも同じ項目が
+    /// あるため、複製すると「設定で切り替えたのに開いている結果
     /// ウィンドウが変わらない」というずれが起きる。Settings は
     /// @Observable なので、どちらから変えても両方の表示が追従する。
     var actualSize: Bool {
@@ -72,6 +76,10 @@ final class ResultViewModel {
 
     /// 結果ウィンドウから新しいキャプチャを始める要求（CAP-09）。
     var requestNewCapture: (() -> Void)?
+
+    /// キャンバス欄（スクロール領域）の実寸が変わったときの通知。ウィンドウが開いた直後に
+    /// 1 回だけ初期サイズの不足を補正するために使う（ResultWindow）。
+    var onCanvasViewportChange: ((CGSize) -> Void)?
 
     /// テキスト欄を開いたときの通知。ウィンドウを伸ばして画像の場所を確保する。
     var onTextPaneOpened: (() -> Void)?
@@ -99,6 +107,7 @@ final class ResultViewModel {
 
     init(capture: CaptureResult) {
         self.capture = capture
+        self.editor = AnnotationEditor(base: capture.image, scale: capture.scale)
         self.mode = Settings.shared.recognitionMode
     }
 
@@ -107,6 +116,8 @@ final class ResultViewModel {
     /// 「テキストを認識」ボタン（OCR-01）。テキスト欄を開いて認識を始める。
     func startRecognition() {
         guard !hasStartedRecognition else { return }
+        // 入力途中の注釈テキストは先に確定する（キャンバスは作り直さないが、保険）。
+        editor.finishTextEditing()
         hasStartedRecognition = true
         onTextPaneOpened?()
         recognize()
@@ -170,7 +181,7 @@ final class ResultViewModel {
 
     /// 画像をクリップボードへ（CPY-01、PNG 形式）。
     func copyImage() {
-        guard let data = pngData() else {
+        guard let exported = exportImage(), let data = pngData(of: exported) else {
             showFeedback("画像を変換できませんでした")
             return
         }
@@ -178,7 +189,7 @@ final class ResultViewModel {
         pasteboard.clearContents()
         // PNG と TIFF の両方を載せると貼り付け先の対応が広い。
         pasteboard.setData(data, forType: .png)
-        if let tiff = NSBitmapImageRep(cgImage: image).tiffRepresentation {
+        if let tiff = NSBitmapImageRep(cgImage: exported).tiffRepresentation {
             pasteboard.setData(tiff, forType: .tiff)
         }
         showFeedback("画像をコピーしました")
@@ -203,7 +214,7 @@ final class ResultViewModel {
 
     /// デスクトップへ PNG 保存（SAV-01/02/03）。
     func save() {
-        guard let data = pngData() else {
+        guard let exported = exportImage(), let data = pngData(of: exported) else {
             showFeedback("画像を変換できませんでした")
             return
         }
@@ -221,7 +232,7 @@ final class ResultViewModel {
     private func uniqueSaveURL() throws -> URL {
         let directory = Settings.shared.saveDirectory
 
-        // 保存先が消えている場合（環境設定で選んだフォルダを後から削除した、
+        // 保存先が消えている場合（設定で選んだフォルダを後から削除した、
         // 外部ボリュームが外れた等）は、書き込み失敗より前に明確に伝える。
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
@@ -262,7 +273,18 @@ final class ResultViewModel {
         recognitionTask = nil
     }
 
-    private func pngData() -> Data? {
+    /// コピー・保存する画像。注釈を焼き込んだもの（0 件なら元画像そのまま）。
+    ///
+    /// OCR は `image`（元画像）のまま。注釈の線や文字を認識結果に混ぜないため。
+    private func exportImage() -> CGImage? {
+        // 入力途中のテキストも含めて書き出す（ボタンはフォーカスを奪わないので、
+        // ここで明示的に確定する）。
+        editor.finishTextEditing()
+        return AnnotationRenderer.renderFlattened(
+            base: image, scale: capture.scale, annotations: editor.document.annotations)
+    }
+
+    private func pngData(of image: CGImage) -> Data? {
         NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
     }
 
@@ -275,7 +297,7 @@ final class ResultViewModel {
         }
     }
 
-    /// CPY-04: コピー後に閉じるかは環境設定（既定は**閉じない**）。
+    /// CPY-04: コピー後に閉じるかは設定（既定は**閉じない**）。
     ///
     /// 閉じるのはユーザーの操作に任せる方針。画像とテキストの両方を
     /// コピーしたい、コピー後に内容を見返したい、といった使い方が

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="580" viewBox="0 0 920 580" font-family="-apple-system, 'Hiragino Sans', 'Helvetica Neue', sans-serif">
+  <defs>
+    <filter id="annShadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="1.5" dy="2.5" stdDeviation="2" flood-opacity="0.45"/></filter>
+    <filter id="blur" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>
+  </defs>
+  <rect width="920" height="580" fill="#fafafa"/>
+
+  <!-- ===== パネル1: 図形の選択 ===== -->
+  <rect x="20" y="20" width="430" height="260" rx="10" fill="#fff" stroke="#d6d6d6"/>
+  <text x="36" y="46" font-size="14" font-weight="700" fill="#222">1. 図形をクリックで選択</text>
+  <rect x="44" y="70" width="300" height="8" rx="4" fill="#e3e6ea"/><rect x="44" y="86" width="240" height="8" rx="4" fill="#e3e6ea"/>
+  <rect x="120" y="128" width="140" height="34" rx="7" fill="#2f7cf6"/><text x="190" y="150" text-anchor="middle" font-size="12" fill="#fff">注文を確定する</text>
+  <rect x="108" y="116" width="164" height="58" rx="4" fill="none" stroke="#FF3B30" stroke-width="4" filter="url(#annShadow)"/>
+  <rect x="103" y="111" width="174" height="68" fill="none" stroke="#1683b8" stroke-dasharray="4 3"/>
+  <g fill="#fff" stroke="#1683b8" stroke-width="1.5">
+    <rect x="99" y="107" width="8" height="8"/><rect x="186" y="107" width="8" height="8"/><rect x="273" y="107" width="8" height="8"/>
+    <rect x="99" y="141" width="8" height="8"/><rect x="273" y="141" width="8" height="8"/>
+    <rect x="99" y="175" width="8" height="8"/><rect x="186" y="175" width="8" height="8"/><rect x="273" y="175" width="8" height="8"/>
+  </g>
+  <text x="284" y="198" font-size="18" fill="#333">⤡</text>
+  <text x="36" y="232" font-size="12" fill="#444">・8 点のハンドルで拡大縮小、中をドラッグで移動</text>
+  <text x="36" y="252" font-size="12" fill="#444">・Shift で正方形／正円、⌫ で削除、⌘D で複製</text>
+  <text x="36" y="272" font-size="12" fill="#444">・詳しい設定は ⌘I／右クリックのポップオーバーで</text>
+
+  <!-- ===== パネル2: 矢印・線 ===== -->
+  <rect x="470" y="20" width="430" height="260" rx="10" fill="#fff" stroke="#d6d6d6"/>
+  <text x="486" y="46" font-size="14" font-weight="700" fill="#222">2. 矢印・線は両端をつかむ</text>
+  <rect x="494" y="70" width="300" height="8" rx="4" fill="#e3e6ea"/><rect x="494" y="86" width="240" height="8" rx="4" fill="#e3e6ea"/>
+  <line x1="560" y1="190" x2="740" y2="120" stroke="#FF3B30" stroke-width="2" stroke-dasharray="5 4" opacity="0.35"/>
+  <g filter="url(#annShadow)">
+    <line x1="560" y1="190" x2="770" y2="148" stroke="#FF3B30" stroke-width="5" stroke-linecap="round"/>
+    <polygon points="786,145 766,138 770,158" fill="#FF3B30" stroke="#FF3B30" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+  <circle cx="560" cy="190" r="6" fill="#fff" stroke="#1683b8" stroke-width="2"/>
+  <circle cx="786" cy="145" r="6" fill="#fff" stroke="#1683b8" stroke-width="2"/>
+  <text x="794" y="140" font-size="16" fill="#333">✥</text>
+  <text x="486" y="232" font-size="12" fill="#444">・始点／終点のハンドルで向きと長さを変える</text>
+  <text x="486" y="252" font-size="12" fill="#444">・Shift で 45° 刻み。線の中ほどをドラッグで全体を移動</text>
+  <text x="486" y="272" font-size="12" fill="#444">・先端の形（なし／片側／両側）はインスペクタで</text>
+
+  <!-- ===== パネル3: テキスト編集 ===== -->
+  <rect x="20" y="300" width="430" height="260" rx="10" fill="#fff" stroke="#d6d6d6"/>
+  <text x="36" y="326" font-size="14" font-weight="700" fill="#222">3. テキストはダブルクリックで文字編集</text>
+  <rect x="44" y="350" width="300" height="8" rx="4" fill="#e3e6ea"/><rect x="44" y="366" width="240" height="8" rx="4" fill="#e3e6ea"/>
+  <rect x="62" y="394" width="262" height="58" rx="3" fill="#fff" fill-opacity="0.2" stroke="#1683b8" stroke-width="2"/>
+  <text x="74" y="436" font-size="30" font-weight="800" fill="#fff" stroke="#111" stroke-width="7" stroke-linejoin="round" paint-order="stroke" filter="url(#annShadow)">ここを押す</text>
+  <line x1="231" y1="406" x2="231" y2="442" stroke="#1683b8" stroke-width="2"/>
+  <text x="36" y="492" font-size="12" fill="#444">・1 回目のクリック＝選択（移動・拡縮・スタイル変更）</text>
+  <text x="36" y="512" font-size="12" fill="#444">・ダブルクリック＝文字カーソル。外をクリックか Esc で確定</text>
+  <text x="36" y="532" font-size="12" fill="#444">・テキストツールで画像をクリック → その場で入力開始</text>
+  <text x="36" y="552" font-size="12" fill="#444">・拡縮ハンドルは文字サイズを変える（枠に折り返しはしない）</text>
+
+  <!-- ===== パネル4: ぼかし・モザイク ===== -->
+  <rect x="470" y="300" width="430" height="260" rx="10" fill="#fff" stroke="#d6d6d6"/>
+  <text x="486" y="326" font-size="14" font-weight="700" fill="#222">4. ぼかし・モザイクは範囲オブジェクト</text>
+  <text x="500" y="370" font-size="12" fill="#555">メール</text>
+  <text x="500" y="396" font-size="12" fill="#555">電話</text>
+  <g filter="url(#blur)">
+    <text x="560" y="370" font-size="13" fill="#222">junpei@example.com</text>
+    <text x="560" y="396" font-size="13" fill="#222">090-1234-5678</text>
+  </g>
+  <rect x="552" y="352" width="160" height="54" fill="none" stroke="#1683b8" stroke-dasharray="4 3"/>
+  <g fill="#fff" stroke="#1683b8" stroke-width="1.5">
+    <rect x="548" y="348" width="8" height="8"/><rect x="708" y="348" width="8" height="8"/>
+    <rect x="548" y="402" width="8" height="8"/><rect x="708" y="402" width="8" height="8"/>
+  </g>
+  <!-- モザイク（未選択） -->
+  <g>
+    <rect x="740" y="352" width="14" height="14" fill="#c9a98b"/><rect x="754" y="352" width="14" height="14" fill="#5b4636"/><rect x="768" y="352" width="14" height="14" fill="#5b4636"/><rect x="782" y="352" width="14" height="14" fill="#c9a98b"/>
+    <rect x="740" y="366" width="14" height="14" fill="#5b4636"/><rect x="754" y="366" width="14" height="14" fill="#e2c6a6"/><rect x="768" y="366" width="14" height="14" fill="#e9cfb2"/><rect x="782" y="366" width="14" height="14" fill="#5b4636"/>
+    <rect x="740" y="380" width="14" height="14" fill="#d8c3ae"/><rect x="754" y="380" width="14" height="14" fill="#d5ae8c"/><rect x="768" y="380" width="14" height="14" fill="#e2c6a6"/><rect x="782" y="380" width="14" height="14" fill="#b9a18c"/>
+    <rect x="740" y="394" width="14" height="14" fill="#3f5f94"/><rect x="754" y="394" width="14" height="14" fill="#6d86b5"/><rect x="768" y="394" width="14" height="14" fill="#3f5f94"/><rect x="782" y="394" width="14" height="14" fill="#3f5f94"/>
+  </g>
+  <text x="808" y="386" font-size="11" fill="#888">顔写真</text>
+  <text x="486" y="452" font-size="12" fill="#444">・ドラッグで範囲を作る。後から移動・拡縮・強さを変更できる</text>
+  <text x="486" y="472" font-size="12" fill="#444">・中身は常に「元画像」から計算し直す（何度動かしても劣化しない）</text>
+  <text x="486" y="492" font-size="12" fill="#444">・図形・テキストより必ず下に描く（矢印がぼけない）</text>
+  <text x="486" y="512" font-size="12" fill="#444">・選択していない時は枠を出さず、仕上がりのまま見せる</text>
+</svg>

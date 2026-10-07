@@ -20,7 +20,7 @@ final class MenuBarController {
     var onCapture: (() -> Void)?
     /// メニューの「範囲を選択してキャプチャ」を選んだとき
     var onCaptureFromMenu: (() -> Void)?
-    /// 環境設定を開く
+    /// 設定を開く
     var onOpenSettings: (() -> Void)?
     /// このアプリについて
     var onShowAbout: (() -> Void)?
@@ -167,7 +167,7 @@ final class MenuBarController {
         menu.addItem(.separator())
 
         let settings = NSMenuItem(
-            title: "環境設定…",
+            title: "設定…",
             action: #selector(menuSettings),
             keyEquivalent: ","
         )

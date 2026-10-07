@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// 環境設定ウィンドウ。
+// 設定ウィンドウ。
 //
 // メニューバーアプリなので SwiftUI の Settings シーンは使えず、
 // 自前で NSWindow を作る。既に開いていれば前面に出すだけにする。
@@ -23,7 +23,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         let hosting = NSHostingController(rootView: SettingsView())
         let window = NSWindow(contentViewController: hosting)
-        window.title = "JPScreenShot 環境設定"
+        window.title = "JPScreenShot 設定"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -33,7 +33,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         //
         // 上げ下げは AppCoordinator がアプリのアクティブ状態に連動させて
         // setFloating(_:) で行う。ここで .floating に固定してしまうと、
-        // 他アプリに切り替えても環境設定だけ最前面に居座り続ける。
+        // 他アプリに切り替えても設定だけ最前面に居座り続ける。
         window.level = .floating
         window.center()
         self.window = window

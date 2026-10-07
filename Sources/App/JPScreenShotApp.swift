@@ -24,6 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // メニュー項目のアクションが coordinator を呼ぶため、先に用意する。
         coordinator = AppCoordinator()
         installMainMenu()
+        #if DEBUG
+        coordinator?.openDebugImageIfRequested()
+        #endif
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // ⌘Q 直前のスタイル変更が、保存のデバウンスを待たずに失われないようにする。
+        coordinator?.flushAnnotationStyles()
     }
 
     // MARK: - メインメニュー
@@ -61,12 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let name = Bundle.main.infoDictionary?["CFBundleName"] as? String ?? "JPScreenShot"
         let menu = NSMenu(title: name)
 
-        // 環境設定（⌘,）。ステータスメニュー側にも同じ項目があるが、
+        // 設定（⌘,）。ステータスメニュー側にも同じ項目があるが、
         // そちらは NSStatusItem に紐づくメニューなので Key Equivalent の
         // 走査対象にならず、⌘, と表示されるだけで実際には効かない。
         // 押せるようにするにはメインメニューにも置く必要がある。
         let settings = menu.addItem(
-            withTitle: "環境設定…",
+            withTitle: "設定…",
             action: #selector(openSettingsFromMenu),
             keyEquivalent: ","
         )
@@ -108,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         QuitConfirmation.confirmAndTerminate()
     }
 
-    /// メインメニューの「環境設定…」（⌘,）。
+    /// メインメニューの「設定…」（⌘,）。
     @objc private func openSettingsFromMenu() {
         coordinator?.openSettings()
     }
@@ -147,6 +155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "ペースト",
             action: #selector(NSText.paste(_:)),
             keyEquivalent: "v"
+        )
+        // 注釈の複製。キャンバスが First Responder のときだけ有効（⌘D）。
+        menu.addItem(
+            withTitle: "複製",
+            action: NSSelectorFromString("duplicate:"),
+            keyEquivalent: "d"
         )
         menu.addItem(
             withTitle: "削除",

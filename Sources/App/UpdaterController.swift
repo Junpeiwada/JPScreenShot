@@ -34,13 +34,13 @@ final class UpdaterController {
         controller.checkForUpdates(nil)
     }
 
-    /// 起動時の自動確認を行うか。環境設定のトグルと結びつける。
+    /// 起動時の自動確認を行うか。設定のトグルと結びつける。
     var automaticallyChecksForUpdates: Bool {
         get { controller.updater.automaticallyChecksForUpdates }
         set { controller.updater.automaticallyChecksForUpdates = newValue }
     }
 
-    /// 最後に更新確認した時刻。環境設定の表示に使う（未確認なら nil）。
+    /// 最後に更新確認した時刻。設定の表示に使う（未確認なら nil）。
     var lastUpdateCheckDate: Date? {
         controller.updater.lastUpdateCheckDate
     }

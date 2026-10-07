@@ -1,14 +1,15 @@
 import Foundation
 
-// 環境設定。UserDefaults に薄く被せる。
+// 設定。UserDefaults に薄く被せる。
 //
 // 第 1 版で永続化するのは以下だけ。
 // - 直前に使った認識モード（6.3「次回の既定として記憶する」）
 // - コピー後にウィンドウを閉じるか（CPY-04、既定は閉じない）
 // - 保存先（SAV-04、既定はデスクトップ）
 // - 画像を等倍で表示するか（結果ウィンドウのトグル状態）
+// - 注釈の種類ごとの最後のスタイル（AnnotationStyleStore 経由で JSON）
 //
-// @Observable にしているのは、環境設定ウィンドウを開いたまま
+// @Observable にしているのは、設定ウィンドウを開いたまま
 // メニューバーからモードを変えても表示が追従するようにするため。
 // 値をビューに複製すると「実際の設定と表示がずれる」状態が起きる。
 @MainActor
@@ -58,6 +59,14 @@ final class Settings {
     /// 書き戻し、次にキャプチャしたときも同じ表示で開く。
     var actualSize: Bool {
         didSet { defaults.set(actualSize, forKey: Key.actualSize) }
+    }
+
+    /// 種類ごとの「最後に使った注釈スタイル」の保存先（実装計画 P4-4）。
+    /// 注釈エディタ（結果ウィンドウごと）がここから初期値を読み、変更のたびに書き戻す。
+    /// Settings の stored property にしない（@Observable で全ビューを無駄に
+    /// 再評価させないため。値の保持は AnnotationEditor が持つ）。
+    var annotationStyleStore: AnnotationStyleStore {
+        AnnotationStyleStore(defaults: defaults)
     }
 
     private init() {

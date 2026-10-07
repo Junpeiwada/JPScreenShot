@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import ScreenCaptureKit
 
 // キャプチャ → OCR → 結果表示 の全体制御。
@@ -21,7 +22,7 @@ final class AppCoordinator {
     private var preloadTask: Task<Void, Never>?
     /// 結果ウィンドウ。閉じたら nil にして画像を解放する。
     private var resultWindow: ResultWindow?
-    /// 環境設定ウィンドウ。開いている間だけ保持する。
+    /// 設定ウィンドウ。開いている間だけ保持する。
     private var settingsWindow: SettingsWindow?
     /// アプリ内自動更新。生成時点で定期確認が動き出すため保持し続ける。
     private let updater = UpdaterController()
@@ -84,7 +85,7 @@ final class AppCoordinator {
     ///
     /// ウィンドウ側の becomeKey / resignKey では判定できない。resignKey は
     /// アプリ内の別ウィンドウやモーダル（NSAlert・NSOpenPanel）が出ただけで
-    /// 発火するため、環境設定を開いたりエラーを表示するたびに沈んでしまう。
+    /// 発火するため、設定を開いたりエラーを表示するたびに沈んでしまう。
     /// アプリ単位で見れば、そうした場面では isActive のまま変わらない。
     private func observeActivation() {
         let center = NotificationCenter.default
@@ -108,7 +109,7 @@ final class AppCoordinator {
 
     /// 開いている全ウィンドウのレベルを揃える。
     ///
-    /// 結果ウィンドウと環境設定ウィンドウは必ず同レベルに保つ。レベルが
+    /// 結果ウィンドウと設定ウィンドウは必ず同レベルに保つ。レベルが
     /// 食い違うと、低いほうが常にもう一方の背面に描画されて操作できなくなる
     /// （どちらも center() で開くため、まず確実に重なる）。
     private func setWindowsFloating(_ floating: Bool) {
@@ -240,6 +241,31 @@ final class AppCoordinator {
         window.show(capture: capture)
     }
 
+    /// 開いている結果ウィンドウの注釈スタイルを保存する（終了時）。
+    func flushAnnotationStyles() {
+        resultWindow?.flushAnnotationStyles()
+    }
+
+    #if DEBUG
+    /// Debug ビルド限定。起動引数 `-JPSOpenImage <PNG のパス>`（任意で
+    /// `-JPSOpenImageScale <倍率>`、既定 2）があれば、その画像で結果ウィンドウを開く。
+    /// 画面収録の権限なしで見た目を確認するためのもの。UserDefaults の引数ドメインで
+    /// 読むので `defaults` への書き込みは起きない。リリースビルドには入らない。
+    func openDebugImageIfRequested() {
+        let defaults = UserDefaults.standard
+        guard let path = defaults.string(forKey: "JPSOpenImage"), !path.isEmpty else { return }
+        let scale = defaults.object(forKey: "JPSOpenImageScale") != nil
+            ? CGFloat(defaults.double(forKey: "JPSOpenImageScale")) : 2
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else {
+            NSLog("JPSOpenImage: 画像を読めませんでした: %@", path)
+            return
+        }
+        showResult(CaptureResult(image: image, scale: scale > 0 ? scale : 2))
+    }
+    #endif
+
     private func presentError(_ error: Error) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
@@ -251,7 +277,7 @@ final class AppCoordinator {
 
     // MARK: - その他のメニュー項目
 
-    /// 環境設定を開く。
+    /// 設定を開く。
     ///
     /// ステータスメニューだけでなく、メインメニューの ⌘, からも呼ばれるため
     /// private にはできない（AppDelegate 経由で到達する）。
@@ -281,7 +307,7 @@ final class AppCoordinator {
             ・ウィンドウをクリックするとそのウィンドウをキャプチャ
             ・結果ウィンドウの「テキストを認識」で OCR を実行
             ・結果ウィンドウの「新規キャプチャ」で続けて撮影
-            ・右クリックでメニュー（認識モードの切替・環境設定）
+            ・右クリックでメニュー（認識モードの切替・設定）
             ・Esc で選択をキャンセルできます
 
             プライバシー:

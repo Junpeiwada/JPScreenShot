@@ -67,3 +67,8 @@ Tools/release.sh 0.1.0        # バージョン更新 → コミット → タ�
 - **`SCShareableContent` は非 `Sendable`。** `Task` の結果型にするとアクター境界を越えられない。MainActor 隔離のプロパティに格納し、`Task` は `Void` を返す形にする（実装計画 6.5）
 - **オーバーレイの写り込み防止に `SCContentFilter` が必須。** `captureImage(in:)` はフィルタを受け取れないので使えない（実装計画 1.2）
 - **`sourceRect` は整数に丸める。** 小数のままだとキャプチャがぼやける
+- **注釈の座標は画像のポイント座標**（`CaptureResult.pointSize` の空間、左上原点・y 下向き）。ピクセルでも画面座標でもない。画面では表示倍率（表示幅 ÷ pointSize）を掛け、書き出しでは `capture.scale` を掛ける
+- **画面表示と書き出しは `AnnotationRenderer` に一本化する。** 描画を別実装にすると画面とコピー・保存の見た目がずれる。重なり順は配列ではなく**層**（元画像 → ぼかし・モザイク → 図形・テキスト）で固定
+- **⌘Z は SwiftUI の `.keyboardShortcut` にしない。** メインメニューの `undo:` / `redo:` を First Responder（キャンバスか OCR テキスト欄）に届けて分ける。`.keyboardShortcut("z")` だと OCR 欄の取り消しを奪う
+- **`Esc` は「閉じる」ボタンの `.cancelAction` と取り合う。** テキスト編集中・キャンバスで選択ありのときは外す（`AnnotationKeyboard.closeButtonOwnsEscape`）
+- **画面収録の権限なしで結果ウィンドウを見る**: Debug ビルドに `-JPSOpenImage <PNG のパス>`（任意で `-JPSOpenImageScale 2`）を渡す
