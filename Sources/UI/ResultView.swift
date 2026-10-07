@@ -169,9 +169,11 @@ struct ResultView: View {
                     }
                     .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
                     .padding(Self.imageMargin)
+                    // 小さい画像は欄の中央に置く。ScrollView の中では maxWidth: .infinity が
+                    // 効かない（大きさを提案されない）ため、欄の大きさを最小値として与える。
                     .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
+                        minWidth: geometry.size.width,
+                        minHeight: geometry.size.height,
                         alignment: .center
                     )
             }
@@ -389,9 +391,7 @@ struct ResultView: View {
             ) {
                 model.requestNewCapture?()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .foregroundStyle(.white)
+            .buttonStyle(FilledRedButtonStyle())
 
             Divider().frame(height: 16)
 
@@ -522,5 +522,41 @@ struct ResultView: View {
             .glassEffect(in: Capsule())
             .padding(.top, 10)
             .transition(.opacity)
+    }
+}
+
+/// 赤い塗りつぶし・白文字のボタン（新規キャプチャ）。
+///
+/// 標準の `.borderedProminent` は使わない。ウィンドウが非アクティブになると色を外して
+/// グレーにするため、白文字が背景に溶けて何も見えなくなる。ここでは背景を自前で描き、
+/// 非アクティブのときは彩度を少し落とすだけにして、赤いボタンだと分かるまま読めるようにする。
+struct FilledRedButtonStyle: ButtonStyle {
+    @Environment(\.controlActiveState) private var activeState
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isActive = activeState == .key || activeState == .active
+        configuration.label
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background {
+                Capsule().fill(Color(nsColor: Self.fillColor(
+                    isActive: isActive, isPressed: configuration.isPressed)))
+            }
+            .opacity(isEnabled ? 1 : 0.45)
+            .contentShape(Capsule())
+    }
+
+    /// 塗りの色。`.saturation` などのフィルタではなく色そのものを混ぜて作る
+    /// （フィルタは描画経路によって効かないことがあり、見た目が環境で変わるため）。
+    /// 動的色（systemRed・systemGray）なのでライト・ダークに追従する。
+    static func fillColor(isActive: Bool, isPressed: Bool) -> NSColor {
+        var color = NSColor.systemRed
+        // 非アクティブはグレーを少し混ぜて彩度を落とす（白文字が読める濃さは保つ）。
+        if !isActive { color = color.blended(withFraction: 0.35, of: .systemGray) ?? color }
+        // 押している間は少し暗くする。
+        if isPressed { color = color.blended(withFraction: 0.15, of: .black) ?? color }
+        return color
     }
 }
