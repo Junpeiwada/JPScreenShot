@@ -3,12 +3,12 @@
     <channel>
         <title>JPScreenShot</title>
         <item>
-            <title>0.1.12</title>
-            <pubDate>Wed, 07 Oct 2026 11:43:44 +0000</pubDate>
-            <sparkle:version>13</sparkle:version>
-            <sparkle:shortVersionString>0.1.12</sparkle:shortVersionString>
+            <title>0.1.13</title>
+            <pubDate>Tue, 13 Oct 2026 00:41:49 +0000</pubDate>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>0.1.13</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/Junpeiwada/JPScreenShot/releases/download/v0.1.12/JPScreenShot-0.1.12.zip" length="1945138" type="application/octet-stream" sparkle:edSignature="8pXJFZ+N9JgKnIsVIB/Q76CGPm+HimR/iLIJ3WpWFcg/1WnYOLcWZe0siPN9B2qvA0nadnolmETGEtTA8MFeCA=="/>
+            <enclosure url="https://github.com/Junpeiwada/JPScreenShot/releases/download/v0.1.13/JPScreenShot-0.1.13.zip" length="1947081" type="application/octet-stream" sparkle:edSignature="P46CiwNFlTRaul7omf/qEm3YOkiaXq/34gZF+lc1C7+ZaRUa91r51ehj+u6aGBeSHUzQEpkfUV4yFx0EUNLzCQ=="/>
         </item>
     </channel>
 </rss>
