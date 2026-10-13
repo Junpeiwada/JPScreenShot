@@ -9,7 +9,7 @@ import ScreenCaptureKit
 //
 // 撮影は macOS 26 の SCScreenshotManager.captureScreenshot(contentFilter:configuration:)
 // を使い、`.bothSDRAndHDR` で 1 回だけ撮る（実装計画-HDR）。旧 captureImage は SDR しか
-// 返せない。
+// 返せない。ただし HDR を表示できない画面では `.sdr` で撮る（Intel Mac の全透明対策。CaptureFallback）。
 //
 // ★実測（2026-10-07）: `.bothSDRAndHDR` は sdrImage にも hdrImage にも**同じ HDR 画像**
 // （16bit float・拡張 sRGB）を返す（displayIntent .local / .canonical どちらでも）。
@@ -190,12 +190,13 @@ enum ScreenCaptureService {
         config.width = Int((sourceRect.width * scale).rounded())
         config.height = Int((sourceRect.height * scale).rounded())
         config.showsCursor = false
-        config.dynamicRange = .bothSDRAndHDR
+        let maxEDR = screen.maximumPotentialExtendedDynamicRangeColorComponentValue
+        config.dynamicRange = CaptureFallback.dynamicRange(displayMaxEDR: maxEDR)
         config.displayIntent = Self.displayIntent
 
         return try await screenshot(
             filter: filter, config: config, scale: scale,
-            displayMaxEDR: screen.maximumPotentialExtendedDynamicRangeColorComponentValue,
+            displayMaxEDR: maxEDR,
             displayColorSpace: Self.displayColorSpace(of: screen),
             shadow: false)
     }
@@ -222,6 +223,26 @@ enum ScreenCaptureService {
         displayColorSpace: CGColorSpace,
         shadow: Bool
     ) async throws -> CaptureResult {
+        var source = try await captureSource(filter: filter, config: config)
+        // Intel Mac では HDR 指定＋width/height で全透明が返る（CaptureFallback）。.sdr で撮り直す。
+        if config.dynamicRange != .sdr, await isFullyTransparent(source) {
+            config.dynamicRange = .sdr
+            source = try await captureSource(filter: filter, config: config)
+        }
+        do {
+            return try await postProcess(
+                source: source, maxEDR: displayMaxEDR, displayColorSpace: displayColorSpace,
+                shadow: shadow, scale: scale)
+        } catch {
+            // SDRConversionError（カーネル未読込／描画失敗）の文言をそのまま利用者へ渡す。
+            throw CaptureError.captureFailed(error)
+        }
+    }
+
+    /// 1 回撮って、元になる画像を取り出す。
+    private static func captureSource(
+        filter: SCContentFilter, config: SCScreenshotConfiguration
+    ) async throws -> CGImage {
         let output: SCScreenshotOutput
         do {
             output = try await SCScreenshotManager.captureScreenshot(
@@ -233,14 +254,13 @@ enum ScreenCaptureService {
         guard let source = output.hdrImage ?? output.sdrImage else {
             throw CaptureError.captureFailed(CaptureImageError.missingImage)
         }
-        do {
-            return try await postProcess(
-                source: source, maxEDR: displayMaxEDR, displayColorSpace: displayColorSpace,
-                shadow: shadow, scale: scale)
-        } catch {
-            // SDRConversionError（カーネル未読込／描画失敗）の文言をそのまま利用者へ渡す。
-            throw CaptureError.captureFailed(error)
-        }
+        return source
+    }
+
+    /// 全透明の判定（GPU の縮約と読み戻し）を MainActor の外で行う。
+    @concurrent
+    nonisolated private static func isFullyTransparent(_ image: CGImage) async -> Bool {
+        CaptureFallback.isFullyTransparent(image)
     }
 
     /// SDR 版の色空間にするディスプレイの色空間。
@@ -308,7 +328,6 @@ enum ScreenCaptureService {
         // 影が必要な場合は ShadowCompositor で後から合成する。
         config.ignoreShadows = true
         config.showsCursor = false
-        config.dynamicRange = .bothSDRAndHDR
         config.displayIntent = Self.displayIntent
 
         // CAP-02: Retina 解像度を維持する。
@@ -327,9 +346,11 @@ enum ScreenCaptureService {
         // HDR 判定と SDR 版の色空間に使うディスプレイ。ウィンドウの載っている画面。
         let windowScreen = ScreenGeometry.screen(
             containing: ScreenGeometry.convertToAppKit(window.frame)) ?? NSScreen.main
+        let maxEDR = windowScreen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1
+        config.dynamicRange = CaptureFallback.dynamicRange(displayMaxEDR: maxEDR)
         return try await screenshot(
             filter: filter, config: config, scale: scale,
-            displayMaxEDR: windowScreen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1,
+            displayMaxEDR: maxEDR,
             displayColorSpace: Self.displayColorSpace(of: windowScreen),
             shadow: includeShadow)
     }

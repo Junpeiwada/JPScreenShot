@@ -31,10 +31,8 @@ struct AnnotationRendererHDRTests {
     private func red(_ image: CGImage, x: Int, y: Int) -> Float {
         let context = HDRPixelFormat.makeContext(width: image.width, height: image.height, hdr: true)!
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        let data = context.data!.assumingMemoryBound(to: Float16.self)
         // CGContext の data は上の行が先頭（描画座標は左下原点だが、メモリは上から）。
-        let i = y * (context.bytesPerRow / MemoryLayout<Float16>.size) + x * 4
-        return Float(data[i])
+        return readHalf(context, component: y * (context.bytesPerRow / 2) + x * 4)
     }
 
     private func whiteRect() -> Annotation {

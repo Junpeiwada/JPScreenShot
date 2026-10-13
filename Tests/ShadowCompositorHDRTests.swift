@@ -33,8 +33,7 @@ struct ShadowCompositorHDRTests {
     private func readRed(_ image: CGImage, x: Int, y: Int) -> Float {
         let context = HDRPixelFormat.makeContext(width: image.width, height: image.height, hdr: true)!
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        let pixels = context.data!.assumingMemoryBound(to: Float16.self)
-        return Float(pixels[(y * context.bytesPerRow / 2) + x * 4])
+        return readHalf(context, component: (y * context.bytesPerRow / 2) + x * 4)
     }
 
     @Test("HDR 入力は 16bit float のまま、影の無い画素が入力値（3.0）と等しい")
